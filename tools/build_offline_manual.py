@@ -96,12 +96,23 @@ def load_sources(source: Path) -> tuple[list[dict], dict, str]:
 
 
 def check_pdf(source: Path, output: Path) -> dict:
-    pages, _, signature = load_sources(source)
     receipt = json.loads(output.with_suffix(".json").read_text(encoding="utf-8"))
-    if receipt["sourceSignature"] != signature or receipt["imageCount"] != len(pages):
-        raise ValueError("PDF 已过期，请从当前正式图解重新生成")
+    if (not isinstance(receipt, dict) or receipt.get("schemaVersion") != RECIPE_VERSION
+            or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("sourceSignature", "")))
+            or not re.fullmatch(r"[0-9a-f]{64}", str(receipt.get("pdfSha256", "")))
+            or type(receipt.get("imageCount")) is not int or receipt["imageCount"] <= 0
+            or type(receipt.get("pageCount")) is not int
+            or receipt["pageCount"] < receipt["imageCount"]):
+        raise ValueError("PDF 生成记录无效，请重新生成")
     if digest(output) != receipt["pdfSha256"] or not output.read_bytes().startswith(b"%PDF-"):
         raise ValueError("PDF 内容与生成记录不一致，请重新生成")
+    # The public checkout ships the reviewed PDF and receipt, not the private
+    # illustration workspace. A present (even incomplete) source directory and
+    # any explicit non-default source still require full source validation.
+    if source.resolve() != SOURCE.resolve() or source.exists():
+        pages, _, signature = load_sources(source)
+        if receipt["sourceSignature"] != signature or receipt["imageCount"] != len(pages):
+            raise ValueError("PDF 已过期，请从当前正式图解重新生成")
     return receipt
 
 

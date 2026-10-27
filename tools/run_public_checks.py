@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 TESTS = (
     "tests/test_public_workflow_closure.py",
     "tests/test_public_repository_rules.py",
+    "tests/test_public_manual_packaging.py",
     "tests/test_export_public_repository.py",
     "tests/test_public_repo_manifest.py",
     "tests/test_public_ci_opensrc.py",

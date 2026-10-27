@@ -36,33 +36,48 @@ cd harken-search
 文中提到的路径约定：
 
 - **repo root**：源码检出目录
-- **build output**：`build_release/Release` 或 `build_public/Release`
+- **build output**：`build_debug/Debug` 或 `build_public/Release`
 
 ---
 
-## 3. Internal/default build（`build_release`）
+## 3. 普通开发构建（`build_debug`）
 
 在仓库根目录执行：
 
 ```powershell
-cmake -S . -B build_release -G "Visual Studio 17 2022" -A x64
-cmake --build build_release --config Release --target HarkenSearch -- /m
+cmake -S . -B build_debug -G "Visual Studio 17 2022" -A x64
+cmake --build build_debug --config Debug --target HarkenSearch -- /m
 ```
 
-internal/default 构建主程序在：
+开发构建使用 Debug，不需要发布密钥，也不用于正式软件更新。主程序在：
 
 ```text
-build_release/Release/HarkenSearch.exe
+build_debug/Debug/HarkenSearch.exe
 ```
 
 ---
 
 ## 4. Public release-safe build（`build_public`）
 
-如需生成 **公开发布安全构建**，执行：
+如需生成 **公开发布安全构建**，先从维护者的发布配置取得包签名 key ID 和
+Ed25519 公钥（32 字节、Base64 编码），分别放入环境变量
+`STABLE_UPDATE_PACKAGE_KEY_ID` 与 `UPDATE_PUBLIC_KEY_B64`。这些是验签公开信息，
+不是签名私钥；不要用临时生成的公钥替代正式更新信任链。
+正式发布优先运行仓库 `main` 上的 `package-update.yml`，该工作流会读取同名仓库变量。
+本地复现时，在同一个 PowerShell 窗口先执行：
 
 ```powershell
-cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF
+$bootstrapKeyId = $env:STABLE_UPDATE_PACKAGE_KEY_ID
+if (-not $bootstrapKeyId) { throw "STABLE_UPDATE_PACKAGE_KEY_ID is required" }
+$keyBytes = [Convert]::FromBase64String($env:UPDATE_PUBLIC_KEY_B64)
+if ($keyBytes.Length -ne 32) { throw "UPDATE_PUBLIC_KEY_B64 must contain 32 bytes" }
+$bootstrapKeyHex = [BitConverter]::ToString($keyBytes).Replace('-', '').ToLowerInvariant()
+```
+
+然后配置并编译（后文的发布命令沿用这两个 PowerShell 变量）：
+
+```powershell
+cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF "-DARIS_BOOTSTRAP_PACKAGE_KEY_ID=$bootstrapKeyId" "-DARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX=$bootstrapKeyHex"
 cmake --build build_public --config Release --target HarkenSearch -- /m
 ```
 
@@ -81,7 +96,7 @@ build_public/Release/HarkenSearch.exe
 
 ```powershell
 py tools/check_release_compliance.py
-cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF
+cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF "-DARIS_BOOTSTRAP_PACKAGE_KEY_ID=$bootstrapKeyId" "-DARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX=$bootstrapKeyHex"
 cmake --build build_public --config Release --target HarkenSearch -- /m
 py tools/check_release_compliance.py --release-dir build_public/Release
 ```
@@ -95,7 +110,7 @@ py tools/check_release_compliance.py --release-dir build_public/Release
 
 ## 6. 打包时应该拿哪些文件
 
-**internal/default 构建最简单的打包方式：直接把整个 `build_release/Release/` 文件夹打包。公开发布安全构建则应打包整个 `build_public/Release/` 文件夹。**
+**开发构建分发给测试时，复制整个 `build_debug/Debug/` 文件夹。公开发布安全构建则使用整个 `build_public/Release/` 文件夹，并通过发布工具完成签名及安装器打包。**
 
 当前公开发布目录至少应包含这些关键文件：
 
@@ -132,24 +147,26 @@ py tools/check_release_compliance.py --release-dir build_public/Release
 
 ## 7. 推荐给同事的最短流程
 
-### internal/default
+### 普通开发构建
 
 ```powershell
-cmake -S . -B build_release -G "Visual Studio 17 2022" -A x64
-cmake --build build_release --config Release --target HarkenSearch -- /m
+cmake -S . -B build_debug -G "Visual Studio 17 2022" -A x64
+cmake --build build_debug --config Debug --target HarkenSearch -- /m
 ```
 
 打包目录：
 
 ```text
-build_release/Release/
+build_debug/Debug/
 ```
 
 ### public release-safe
 
+先完成第 4 节的公钥配置，再执行：
+
 ```powershell
 py tools/check_release_compliance.py
-cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF
+cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF "-DARIS_BOOTSTRAP_PACKAGE_KEY_ID=$bootstrapKeyId" "-DARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX=$bootstrapKeyHex"
 cmake --build build_public --config Release --target HarkenSearch -- /m
 py tools/check_release_compliance.py --release-dir build_public/Release
 ```

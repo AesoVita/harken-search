@@ -1950,14 +1950,16 @@ if(Python3_Interpreter_FOUND)
     )
     aura_set_test_labels(TestHarkenSearchWorkflowCueviContract core)
 
-    add_test(
-        NAME TestArisDesignReviewServer
-        COMMAND ${Python3_EXECUTABLE} -m unittest tests.test_aris_design_review_server -v
-    )
-    set_tests_properties(TestArisDesignReviewServer PROPERTIES
-        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    )
-    aura_set_test_labels(TestArisDesignReviewServer core ui)
+    if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/tests/test_aris_design_review_server.py)
+        add_test(
+            NAME TestArisDesignReviewServer
+            COMMAND ${Python3_EXECUTABLE} -m unittest tests.test_aris_design_review_server -v
+        )
+        set_tests_properties(TestArisDesignReviewServer PROPERTIES
+            WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        )
+        aura_set_test_labels(TestArisDesignReviewServer core ui)
+    endif()
 
     add_test(
         NAME TestDailySelfReview

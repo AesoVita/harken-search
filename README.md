@@ -24,12 +24,14 @@ Windows quick build / packaging guide:
 
 ## Release compliance
 
-Run the public-release compliance preflight before packaging:
+Follow [BUILD_WINDOWS.md](BUILD_WINDOWS.md) for the ordinary Debug build or the
+public release build with its required package key ID and verification public key.
+Official packages are built from `main` by the `package-update.yml` workflow.
+The signing private key is never part of the source tree or a CMake command.
+Run the compliance checks before building and after assembling the release:
 
 ```powershell
 py tools/check_release_compliance.py
-cmake -S . -B build_public -G "Visual Studio 17 2022" -A x64 -DARIS_PUBLIC_RELEASE=ON -DAURO_BUNDLE_AVID_PTSL=OFF
-cmake --build build_public --config Release --target HarkenSearch -- /m
 py tools/check_release_compliance.py --release-dir build_public/Release
 ```
 
