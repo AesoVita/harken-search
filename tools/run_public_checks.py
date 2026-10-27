@@ -1,0 +1,37 @@
+"""Run the source checks available in an independent public checkout."""
+from pathlib import Path
+import subprocess
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+TESTS = (
+    "tests/test_public_workflow_closure.py",
+    "tests/test_public_repository_rules.py",
+    "tests/test_export_public_repository.py",
+    "tests/test_public_repo_manifest.py",
+    "tests/test_public_ci_opensrc.py",
+    "tests/test_release_compliance_contract.py",
+    "tests/test_third_party_sbom.py",
+    "tests/test_localization_ledger.py",
+    "tests/test_localization_purity.py",
+    "tests/test_repository_update_migration.py",
+    "tests/test_build_update_manifest.py",
+    "tests/test_update_product_composition.py",
+)
+
+
+def main() -> int:
+    commands = (
+        [sys.executable, "tools/check_release_compliance.py"],
+        [sys.executable, "-m", "pytest", *TESTS, "-q"],
+    )
+    for command in commands:
+        print("+ " + " ".join(command), flush=True)
+        result = subprocess.run(command, cwd=ROOT, check=False)
+        if result.returncode:
+            return result.returncode
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

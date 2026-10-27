@@ -1,0 +1,262 @@
+{
+  "received": "2026-10-25",
+  "source": "User-supplied HARKEN APP icon",
+  "products": {
+    "Search": "orange",
+    "Studio": "blue",
+    "HARKEN": "black",
+    "Hub": "original supplied artwork"
+  },
+  "files": [
+    {
+      "path": "APP ICON SHOWCASE rounded.png",
+      "bytes": 196360,
+      "sha256": "86ad844c16768446e68d2cad53f33438788e11cb58dd089d1d32371964993ca4"
+    },
+    {
+      "path": "APP ICON SHOWCASE square.png",
+      "bytes": 190580,
+      "sha256": "ab3bdf4463442a5ea7f16d593222991bc7d494070e50cbcc7af3c51518fca509"
+    },
+    {
+      "path": "HARKEN/HARKEN dark 1024.png",
+      "bytes": 13173,
+      "sha256": "fee9dd3d87cfab65b39e8de37f375610c62c962e21c392842ea4f8f9a00ff3f1"
+    },
+    {
+      "path": "HARKEN/HARKEN dark 128.png",
+      "bytes": 3057,
+      "sha256": "c4608b6099fe6f980fe63ab0c1881a01e5be1ee039f6fec8526b656866ae041e"
+    },
+    {
+      "path": "HARKEN/HARKEN dark 256.png",
+      "bytes": 5918,
+      "sha256": "da8db6ba36c57b1b3f9a49dc19d23400b9f33fc5b64f1a0351b6600b77c324a5"
+    },
+    {
+      "path": "HARKEN/HARKEN dark 512.png",
+      "bytes": 11378,
+      "sha256": "a618d9eb5824ba13dbc2a68e07d0712825d27c37f5260632a78b354338c37c84"
+    },
+    {
+      "path": "HARKEN/HARKEN dark 64.png",
+      "bytes": 1481,
+      "sha256": "0c091a4921f493af1d7ddf4615d89e1f742b8e0353f0ad908f68e7f7d24ea378"
+    },
+    {
+      "path": "HARKEN/HARKEN light 1024.png",
+      "bytes": 12869,
+      "sha256": "72fbd633d4127c6b7b2269ffdcd0bfe05ceb8f824a8c0f6ef39061db37b16de1"
+    },
+    {
+      "path": "HARKEN/HARKEN light 128.png",
+      "bytes": 3055,
+      "sha256": "c553bba5e458433dafb0aeeb9760548f9d2e93370a433289ba435efea9e36df1"
+    },
+    {
+      "path": "HARKEN/HARKEN light 256.png",
+      "bytes": 5954,
+      "sha256": "94af143f4a17e23ebb9f99fe883e1bbce8b4a6a72b4746f2e569f571d5956565"
+    },
+    {
+      "path": "HARKEN/HARKEN light 512.png",
+      "bytes": 11401,
+      "sha256": "b55c5c5ad3ed4f268d69a94338595469ac3f24bf3204f169b692533b63e10dd9"
+    },
+    {
+      "path": "HARKEN/HARKEN light 64.png",
+      "bytes": 1395,
+      "sha256": "0afd0980cdde066605048b84928a06742094200fd7f8a2bd322b6cb9851331b3"
+    },
+    {
+      "path": "Hub/Hub dark 1024.png",
+      "bytes": 856713,
+      "sha256": "9993598dea61463d374f366131078ac1e762ac342aab7cc6e175445de6ec372a"
+    },
+    {
+      "path": "Hub/Hub dark 128.png",
+      "bytes": 22239,
+      "sha256": "af524955d62913a9cf4a72c6abb3e5caf9dee4e64974d5a06a8eee5c12a5d23c"
+    },
+    {
+      "path": "Hub/Hub dark 256.png",
+      "bytes": 68307,
+      "sha256": "6895573a2fe6f4fcd7dee5403d565efca50376931e9f4be3acbf3ec364e9c2ac"
+    },
+    {
+      "path": "Hub/Hub dark 512.png",
+      "bytes": 238288,
+      "sha256": "a5a9c1a81b9c2d080ec6a14355981e490289febbfbb50a11d219569e67967993"
+    },
+    {
+      "path": "Hub/Hub dark 64.png",
+      "bytes": 7440,
+      "sha256": "49bfea16f7785689ef28f415cfae0be377c2a9f963bc0b70a5d288b473c0f86e"
+    },
+    {
+      "path": "Hub/Hub light 1024.png",
+      "bytes": 24780,
+      "sha256": "16b18255f0ab006082f07f1a0960f0fe922c083f2cf87041a38a6078314fe0cd"
+    },
+    {
+      "path": "Hub/Hub light 128.png",
+      "bytes": 5566,
+      "sha256": "fd9022ca0f568177b8d63bea3d6e312955d7c49c25fa9135e9fa7879eafad4a2"
+    },
+    {
+      "path": "Hub/Hub light 256.png",
+      "bytes": 12077,
+      "sha256": "7425d461bdb48567bcdd8162c599b8e4bc83200bdaaecba108377ebe459f81b0"
+    },
+    {
+      "path": "Hub/Hub light 512.png",
+      "bytes": 26501,
+      "sha256": "3e4da088f6f0482344827c843c66c08cbd55b69aaea2b92587ea5e8e7d990130"
+    },
+    {
+      "path": "Hub/Hub light 64.png",
+      "bytes": 2408,
+      "sha256": "252b102407ba1496a30019b184ea423084dd556349bf881aa93710a1012168cc"
+    },
+    {
+      "path": "Search/Search transparent 16.png",
+      "bytes": 640,
+      "sha256": "26c31262bb4f02ed484fc38f111b05d3695356a8f34bfeefacc9f9b2fba37ddd"
+    },
+    {
+      "path": "Search/Search transparent 20.png",
+      "bytes": 894,
+      "sha256": "83650bf69787311548bb3101d46a11ed22ba776ffcfc1f3d1855a0cccc07b132"
+    },
+    {
+      "path": "Search/Search transparent 24.png",
+      "bytes": 1104,
+      "sha256": "82ad42cd5c965625da1fe59e5f3a5f18d5364b573da415dce0c2eca71ceb7f4a"
+    },
+    {
+      "path": "Search/Search transparent 30.png",
+      "bytes": 1570,
+      "sha256": "30904fffa1dc16075e080bba467d5602e284cd65efae8f0c8f92d0902feaf656"
+    },
+    {
+      "path": "Search/Search transparent 32.png",
+      "bytes": 1705,
+      "sha256": "a44f89fb98e465b26ac25c8caf9777f5f7b5ad2197dcc14d9f8423aca3a04ce5"
+    },
+    {
+      "path": "Search/Search transparent 36.png",
+      "bytes": 2138,
+      "sha256": "717f52ccfcf7de4deec30711326687514fed439f45dcbf85803f453710ee4ceb"
+    },
+    {
+      "path": "Search/Search transparent 40.png",
+      "bytes": 2374,
+      "sha256": "6463238fd5d9501bd61c0bd2980862a3ec98aaa28b7623cfae5ac5570b6c137e"
+    },
+    {
+      "path": "Search/Search transparent 48.png",
+      "bytes": 2977,
+      "sha256": "308d90ef56551ff8ac7296d8108b7349523f84cf6b1b88005246f539b3fb4385"
+    },
+    {
+      "path": "Search/Search transparent 60.png",
+      "bytes": 4217,
+      "sha256": "598d96e4f95746e55fa552b7112e4091ec9d681089402ef925768d19336be57e"
+    },
+    {
+      "path": "Search/Search transparent 64.png",
+      "bytes": 4901,
+      "sha256": "6e45e9e74f071cec1ed9290cae38c3f84d50ddd70848207faddc23d957494d31"
+    },
+    {
+      "path": "Search/Search transparent 72.png",
+      "bytes": 5609,
+      "sha256": "38b8c2f0099099cf46ffe14ecf20daffc8b65da0338cb7b9287c9e718f96d8f7"
+    },
+    {
+      "path": "Search/Search transparent 80.png",
+      "bytes": 6587,
+      "sha256": "ef7ecf3e809989e2ab9f8c4252ca7416d235e96faffd0e48cce431b4c7b21070"
+    },
+    {
+      "path": "Search/Search transparent 96.png",
+      "bytes": 8605,
+      "sha256": "fe279d7908c8babd0c556638c9bc8d3f11d9ad3b92eea03c57999b71610d3431"
+    },
+    {
+      "path": "Search/Search transparent 128.png",
+      "bytes": 12882,
+      "sha256": "76a25f94059d9ccbc7e9e212e0cdaf9dd97c5b2a1f94bc376c8c61ab2c9e162a"
+    },
+    {
+      "path": "Search/Search transparent 192.png",
+      "bytes": 23436,
+      "sha256": "d59d68a7867c250dd9cf9c528f7927d20664d259708d34e6c9873e4cdbd2d36f"
+    },
+    {
+      "path": "Search/Search transparent 256.png",
+      "bytes": 36088,
+      "sha256": "403a107b4fc40900a7cc9105e6748e265f2080d4a207af9d9d9b574553ac0d45"
+    },
+    {
+      "path": "Search/Search transparent 512.png",
+      "bytes": 113959,
+      "sha256": "664763bdbe13015f1045ff693259cb23ca79801bf8464237da325307a6d75c07"
+    },
+    {
+      "path": "Search/Search transparent 1024.png",
+      "bytes": 353576,
+      "sha256": "eceed31efd377f4d2d52cbeeb400ec30598c9625a6ed61b9bc4f22cc6e21bc8f"
+    },
+    {
+      "path": "Studio/Studio dark 1024.png",
+      "bytes": 145527,
+      "sha256": "f1b1dc00f5d923b34edd31b7f316e0eea9117688c0e6558a2bcccd925a2e7742"
+    },
+    {
+      "path": "Studio/Studio dark 128.png",
+      "bytes": 8033,
+      "sha256": "25b6e9692dabf861e1e6008a9ae64535ed10ae3b14246c2bfac4bd04758ad192"
+    },
+    {
+      "path": "Studio/Studio dark 256.png",
+      "bytes": 21780,
+      "sha256": "5126b23420f24471ebf147f19ff3a47ec61927d5d4b46cffad48a4771d3ba412"
+    },
+    {
+      "path": "Studio/Studio dark 512.png",
+      "bytes": 63354,
+      "sha256": "6f1a14ed706b867627a3a86f2b7fecfe78f4f191f8eb742998c2ef4d046e286a"
+    },
+    {
+      "path": "Studio/Studio dark 64.png",
+      "bytes": 3118,
+      "sha256": "be732226b5ddd730fe6bb6c66af4cfb73a3deb4ebfef59d6adcb1090711455cd"
+    },
+    {
+      "path": "Studio/Studio light 1024.png",
+      "bytes": 144921,
+      "sha256": "cce7c0ff1ffee3e43cddb7cbde9c226df5f688f4eb29ea0c4a04f66186291087"
+    },
+    {
+      "path": "Studio/Studio light 128.png",
+      "bytes": 7551,
+      "sha256": "45b7fbe3aea09d5b05f5e8c3ee9c8d79c026298c1bdaedeb9fcb7063259b2c89"
+    },
+    {
+      "path": "Studio/Studio light 256.png",
+      "bytes": 20305,
+      "sha256": "93d5fb1622740f6d21e20039b360279890eec56ed8f282548d388cb3382f0c0c"
+    },
+    {
+      "path": "Studio/Studio light 512.png",
+      "bytes": 60585,
+      "sha256": "98f48814328b77d84d95574158712a36c2d1a25646265d2d32f6642ba642f5b3"
+    },
+    {
+      "path": "Studio/Studio light 64.png",
+      "bytes": 2898,
+      "sha256": "e82cc87e2bfecc6f1fd2afeb54755d29e7536d454445ad8a30c01d4c69b1138c"
+    }
+  ]
+}

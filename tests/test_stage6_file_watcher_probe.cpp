@@ -1,0 +1,177 @@
+#include "platform/file_watcher.h"
+
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <condition_variable>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <iostream>
+#include <mutex>
+#include <string>
+#include <vector>
+
+namespace {
+
+constexpr int kCycles = 50;
+constexpr auto kEventTimeout = std::chrono::seconds(2);
+
+enum class Expected { None, Create, Rename, Delete };
+
+struct ProbeState {
+    std::mutex mutex;
+    std::condition_variable changed;
+    Expected expected = Expected::None;
+    std::string name;
+    std::string oldName;
+    std::chrono::steady_clock::time_point started;
+    std::vector<double> deliveryMs;
+    std::vector<std::string> eventOrder;
+    int receivedCount = 0;
+    bool invalidOrder = false;
+};
+
+static std::string FileName(const std::string& path) {
+    return std::filesystem::path(path).filename().string();
+}
+
+static void OnEvent(ProbeState& state, const FileSystemWatcher::FileEvent& event) {
+    if (event.type == FileSystemWatcher::EventType::FileModified ||
+        event.type == FileSystemWatcher::EventType::NeedRescan)
+        return;
+    std::lock_guard<std::mutex> lock(state.mutex);
+    bool match = false;
+    const std::string name = FileName(event.path);
+    if (state.expected == Expected::Create)
+        match = event.type == FileSystemWatcher::EventType::FileAdded && name == state.name;
+    else if (state.expected == Expected::Rename)
+        match = event.type == FileSystemWatcher::EventType::FileRenamed &&
+                name == state.name && FileName(event.oldPath) == state.oldName;
+    else if (state.expected == Expected::Delete)
+        match = event.type == FileSystemWatcher::EventType::FileDeleted && name == state.name;
+    if (!match) {
+        state.invalidOrder = true;
+        state.changed.notify_one();
+        return;
+    }
+    state.deliveryMs.push_back(std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - state.started).count());
+    state.eventOrder.push_back(state.expected == Expected::Create ? "create" :
+                               state.expected == Expected::Rename ? "rename" : "delete");
+    ++state.receivedCount;
+    state.expected = Expected::None;
+    state.changed.notify_one();
+}
+
+static void Expect(ProbeState& state, Expected expected, const std::string& name,
+                   const std::string& oldName = {}) {
+    std::lock_guard<std::mutex> lock(state.mutex);
+    state.expected = expected;
+    state.name = name;
+    state.oldName = oldName;
+    state.started = std::chrono::steady_clock::now();
+}
+
+static bool Wait(ProbeState& state, int target) {
+    std::unique_lock<std::mutex> lock(state.mutex);
+    return state.changed.wait_for(lock, kEventTimeout, [&] {
+        return state.receivedCount >= target || state.invalidOrder;
+    }) && !state.invalidOrder && state.receivedCount == target;
+}
+
+static bool WaitForCreate(ProbeState& state, const std::filesystem::path& path, int target) {
+    Expect(state, Expected::Create, path.filename().string());
+    std::ofstream(path, std::ios::binary) << "probe";
+    return Wait(state, target);
+}
+
+static bool WaitForRename(ProbeState& state, const std::filesystem::path& oldPath,
+                          const std::filesystem::path& newPath, int target) {
+    Expect(state, Expected::Rename, newPath.filename().string(), oldPath.filename().string());
+    std::filesystem::rename(oldPath, newPath);
+    return Wait(state, target);
+}
+
+static bool WaitForDelete(ProbeState& state, const std::filesystem::path& path, int target) {
+    Expect(state, Expected::Delete, path.filename().string());
+    std::filesystem::remove(path);
+    return Wait(state, target);
+}
+
+static double Percentile(std::vector<double> values, double percentile) {
+    std::sort(values.begin(), values.end());
+    const std::size_t index = static_cast<std::size_t>(
+        std::ceil(percentile * static_cast<double>(values.size()))) - 1U;
+    return values[(std::min)(index, values.size() - 1U)];
+}
+
+static int EnvironmentGate(const char* reason) {
+    std::cout << "{\"status\":\"environment_gate\",\"reason\":\"" << reason << "\"}\n";
+    return 2;
+}
+
+static int Failed(const char* reason) {
+    std::cout << "{\"status\":\"failed\",\"reason\":\"" << reason << "\"}\n";
+    return 1;
+}
+
+} // namespace
+
+int main() {
+    const auto unique = std::chrono::steady_clock::now().time_since_epoch().count();
+    const auto root = std::filesystem::temp_directory_path() /
+                      ("aris-stage6-watcher-" + std::to_string(unique));
+    std::filesystem::create_directories(root);
+
+    ProbeState state;
+    state.deliveryMs.reserve(kCycles * 3);
+    state.eventOrder.reserve(kCycles * 3);
+    FileSystemWatcher watcher;
+    watcher.setEventCallback([&](const FileSystemWatcher::FileEvent& event) { OnEvent(state, event); });
+    if (!watcher.addWatchDirectory(root.string())) {
+        std::filesystem::remove_all(root);
+        return EnvironmentGate("watch directory registration failed");
+    }
+    if (!watcher.start()) {
+        std::filesystem::remove_all(root);
+        return EnvironmentGate("watcher start failed");
+    }
+
+    bool passed = true;
+    for (int cycle = 0; cycle < kCycles; ++cycle) {
+        const auto created = root / ("probe-" + std::to_string(cycle) + ".tmp");
+        const auto renamed = root / ("probe-" + std::to_string(cycle) + ".done");
+        const int base = cycle * 3;
+        if (!WaitForCreate(state, created, base + 1) ||
+            !WaitForRename(state, created, renamed, base + 2) ||
+            !WaitForDelete(state, renamed, base + 3)) {
+            passed = false;
+            break;
+        }
+    }
+
+    const auto shutdownStart = std::chrono::steady_clock::now();
+    watcher.stop();
+    const double shutdownMs = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - shutdownStart).count();
+    const bool stopped = !watcher.isRunning() && shutdownMs < 2000.0;
+    std::filesystem::remove_all(root);
+    if (!passed)
+        return Failed(state.invalidOrder ? "duplicate or out-of-order event" : "event timeout or missing event");
+    if (!stopped)
+        return Failed("watcher stop/join did not finish cleanly");
+
+    std::cout << std::fixed << std::setprecision(6)
+              << "{\"status\":\"measured\",\"delivery\":{\"median_ms\":"
+              << Percentile(state.deliveryMs, 0.50) << ",\"p95_ms\":"
+              << Percentile(state.deliveryMs, 0.95) << ",\"max_ms\":"
+              << *std::max_element(state.deliveryMs.begin(), state.deliveryMs.end())
+              << "},\"received_count\":" << state.receivedCount << ",\"event_order\":[";
+    for (std::size_t index = 0; index < state.eventOrder.size(); ++index) {
+        if (index) std::cout << ',';
+        std::cout << '\"' << state.eventOrder[index] << '\"';
+    }
+    std::cout << "],\"shutdown_elapsed_ms\":" << shutdownMs << "}\n";
+    return 0;
+}

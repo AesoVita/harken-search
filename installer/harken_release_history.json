@@ -1,0 +1,554 @@
+{
+  "schema_version": 2,
+  "releases": [
+    {
+      "version": "1.0.40",
+      "release_date": "2026-10-28",
+      "headline": "开源仓库与更新入口迁移",
+      "source": "Harken Search",
+      "sections": [
+        {
+          "title": "体验优化",
+          "items": [
+            {
+              "name": "HarkenDeveloper-zhongziyu",
+              "list": [
+                {
+                  "title": "开源仓库",
+                  "description": "源码与后续版本迁入 Harken Search 公开仓库，开发改动通过 PR 审查合入。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "更新下载",
+                  "description": "新版使用新仓库更新入口，旧版继续通过原有入口升级，保留原有安装位置和用户数据。",
+                  "source": "Harken Search"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": ["HarkenDeveloper-zhongziyu"]
+    },
+    {
+      "version": "1.0.39",
+      "release_date": "2026-10-28",
+      "headline": "更新应用图标，完善窗口停靠与安装体验",
+      "source": "Harken Search",
+      "sections": [
+        {
+          "title": "体验优化",
+          "items": [
+            {
+              "name": "HarkenDeveloper-zhongziyu",
+              "list": [
+                {
+                  "title": "透明底应用图标",
+                  "description": "Windows 应用、安装器和工具栏统一使用新版透明底 Search 图标。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "频谱分析说明",
+                  "description": "统一高级频谱分析、频谱开关和 FFT 提示的中英日文说明。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "窗口停靠",
+                  "description": "完善功能窗口的浮动、吸附和分屏操作，恢复 Info 面板的相关操作。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "双语安装向导",
+                  "description": "安装向导和协议按系统显示语言使用中文或英文，并随软件提供完整协议文件。",
+                  "source": "Harken Search"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "HarkenDeveloper-zhongziyu",
+              "list": [
+                {
+                  "title": "封面浏览",
+                  "description": "全局封面墙继续读取列表首页以外的封面，保持完整文件库的浏览顺序。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "升级兼容",
+                  "description": "保留旧版自定义快捷键和输出文件名后缀设置，并保持更新包读取与已运行窗口唤醒的兼容性。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "扫描错误提示",
+                  "description": "修复显示扫描错误时可能导致程序异常退出的问题。",
+                  "source": "Harken Search"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "HarkenDeveloper-zhongziyu"
+      ]
+    },
+    {
+      "version": "1.0.38",
+      "release_date": "2026-10-23",
+      "headline": "恢复安装版欢迎页并修复自动更新",
+      "pull_request_count": 2,
+      "commit_count": 2,
+      "source": "Harken Search",
+      "sections": [
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "HarkenDeveloper-zhongziyu",
+              "list": [
+                {
+                  "title": "自动更新",
+                  "description": "修复部分 Windows 文件属性导致更新中断、新版启动后清理失败，以及启动失败仍显示更新成功的问题。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "更新后启动",
+                  "description": "移除旧登录页对启动的阻塞，让更新后的程序正常完成启动确认。",
+                  "source": "Harken Search"
+                },
+                {
+                  "title": "安装版启动与旧库",
+                  "description": "恢复安装版欢迎页和网页加载页，修复旧库读取、搜索及多声道发送中的异常。",
+                  "source": "Harken Search"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": ["HarkenDeveloper-zhongziyu"]
+    },
+    {
+      "version": "1.0.11",
+      "release_date": "2026-08-04",
+      "headline": "自动更新闭环终点验证",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "内部验证",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "空版本 bump",
+                  "description": "让 v1.0.10 客户端(含 IsSafePlan 修复)完整跑一遍 check + download + restart 闭环。若一切顺利,更新中心将显示可用版本 v1.0.11,点立即更新后自动完成升级。",
+                  "source": "Aris update pipeline verification"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.10",
+      "release_date": "2026-08-04",
+      "headline": "修复:客户端 IsSafePlan 硬编码 xindong/aris 前缀,导致新仓库下所有自动下载被拒",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "IsSafePlan 与恢复元数据校验不再硬编码 xindong/aris",
+                  "description": "src/platform/update_http_transport.cpp:76 (IsSafePlan) 和 src/platform/update_persistence_port.cpp:692 (ObserveResumeMetadata) 都硬编码了 https://github.com/xindong/aris/releases/download/ 前缀。今天早上把发布仓库迁到 zhongziyu-cmd/aris-releases 后,manifest 里的 asset.url 变了,但这两个校验点没跟着改,导致所有下载在 IsSafePlan 阶段就 return InvalidPlan。改成使用 ARIS_UPDATE_GITHUB_RELEASE_DOWNLOAD_PREFIX 宏(与其他 URL 校验点一致),仓库迁移只需改一处 CMake 参数即可全局生效。",
+                  "source": "Aris updater black-box tests"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.9",
+      "release_date": "2026-08-04",
+      "headline": "触发 v1.0.8 客户端捕获真实下载错误",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "内部验证",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "空版本 bump",
+                  "description": "无功能改动。让装了 v1.0.8(含 HTTP 传输层全分支错误细节)的客户端尝试拉本版本,若下载失败则显示真实的 WinInet/系统错误码,而不是笼统 update protocol failure。",
+                  "source": "Aris update pipeline verification"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.8",
+      "release_date": "2026-08-04",
+      "headline": "下载错误覆盖 HTTP 传输层全部失败路径",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "InvalidPlan/SinkRejected/Cancelled 也带具体细节",
+                  "description": "v1.0.6 只让 sink 内部的失败点带具体 detail;HTTP 传输层本身返回 InvalidPlan/SinkRejected/Cancelled 时,sink.errorDetail() 是空,line 692 fallback 到笼统的 update protocol failure。改成所有 HttpTransportExecutionError 分支都合成具体 detail,并把 WinInet/系统错误码 systemError 也带上,方便定位 timeout/DNS/连接被拒/SSL 等真实 bug。",
+                  "source": "Aris updater black-box tests"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.7",
+      "release_date": "2026-08-04",
+      "headline": "更新拉取端到端二次验证",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "内部验证",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "空版本 bump",
+                  "description": "用来让装了 v1.0.6(含错误细节 propagate)的客户端尝试拉本版本,若下载再失败,更新中心将显示具体细节而不是笼统的 update protocol failure。无功能改动。",
+                  "source": "Aris update pipeline verification"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.6",
+      "release_date": "2026-08-04",
+      "headline": "下载失败给出具体原因",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "下载错误细节 propagate",
+                  "description": "更新中心之前只会显示笼统的 update protocol failure,把真实原因盖住。改造下载 sink,在每个失败点记录具体细节(HTTP 状态与 content-length、chunk offset、staged size、SHA-256 mismatch 等),用户点检查更新看到的将是可追踪的具体原因。",
+                  "source": "Aris updater black-box tests"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.5",
+      "release_date": "2026-08-04",
+      "headline": "更新拉取通道端到端验证",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "内部验证",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "更新流程闭环测试",
+                  "description": "空版本号 bump,用于端到端验证 v1.0.4 客户端能否正常检测到新版本、下载、验签、Bootstrap 交接、重启并升级到 v1.0.5。无功能改动。",
+                  "source": "Aris update pipeline verification"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.4",
+      "release_date": "2026-08-04",
+      "headline": "更新检查允许 GitHub 同源重定向",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "更新检查重定向被误拒",
+                  "description": "GitHub 会先把 /releases/latest/download/ 302 到 /releases/download/vX.Y.Z/,再 302 到 CDN。之前客户端只允许 CDN 主机作为重定向目标,导致 v1.0.3 更新检查报 update check redirect is not approved。修复后同一仓库路径前缀的中间跳转也被允许,加密与仓库替换检查保持不变。",
+                  "source": "Aris updater black-box tests"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.3",
+      "release_date": "2026-07-31",
+      "headline": "Aris 更新中心与热更新闭环",
+      "pull_request_count": 1,
+      "commit_count": 1,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "新增功能",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "更新中心",
+                  "description": "加入可手动检查、下载进度、立即更新、版本日期、贡献者与历史版本滚动加载。",
+                  "source": "Figma 06 Update Log"
+                },
+                {
+                  "title": "GitHub 热更新通道",
+                  "description": "正式构建默认从 GitHub Releases 获取签名清单与更新包，内网镜像仅保留为显式 QA 配置。",
+                  "source": "GitHub Releases"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "立即更新无响应",
+                  "description": "Bootstrap 改为从已验证的 staging 目录启动，完成旧进程等待、文件替换、健康确认与重启交接。",
+                  "source": "Aris updater black-box tests"
+                },
+                {
+                  "title": "更新失败可见",
+                  "description": "Bootstrap 交接失败会回到可重试状态并在更新中心显示原因，不再静默无响应。",
+                  "source": "Aris Desktop"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.2",
+      "release_date": "2026-07-31",
+      "headline": "Aris 自动更新与更新内容视图",
+      "pull_request_count": 12,
+      "commit_count": 84,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "新增功能",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "自动更新基础链路",
+                  "description": "加入签名清单校验、下载恢复、Bootstrap 替换与健康确认基础流程。",
+                  "source": "GitHub Releases"
+                },
+                {
+                  "title": "更新内容视图",
+                  "description": "展示版本、日期、变更数量、贡献者和历史版本，并支持滚动加载。",
+                  "source": "Figma 06 Update Log"
+                }
+              ]
+            },
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "帮助菜单入口",
+                  "description": "在帮助菜单保留更新中心与更新日志入口。",
+                  "source": "Aris Desktop"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "问题修复",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "发布工作流输入安全",
+                  "description": "发布元数据改由环境变量传递，避免命令行表达式注入。",
+                  "source": "GitHub Actions"
+                },
+                {
+                  "title": "更新检查取消",
+                  "description": "WinINet 请求生命周期支持有界超时和取消。",
+                  "source": "Aris updater tests"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.1",
+      "release_date": "2026-07-28",
+      "headline": "Aris 开源单一版本与 Cuevi foundation",
+      "pull_request_count": 6,
+      "commit_count": 31,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "产品调整",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "统一完整功能版本",
+                  "description": "移除 Basic 与 Ultimate 的功能分流，保留单一完整版本。",
+                  "source": "Aris product decision"
+                },
+                {
+                  "title": "Cuevi 集成基线",
+                  "description": "将反馈与需求流程对齐到 Cuevi foundation 基线。",
+                  "source": "Cuevi foundation"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "release_date": "2026-07-20",
+      "headline": "Aris 首个公开测试版本",
+      "pull_request_count": 4,
+      "commit_count": 22,
+      "source": "GitHub Releases",
+      "sections": [
+        {
+          "title": "核心能力",
+          "items": [
+            {
+              "name": "Cindy",
+              "list": [
+                {
+                  "title": "声音资产浏览",
+                  "description": "提供筛选、波形预览、播放和文件信息工作流。",
+                  "source": "Aris Desktop"
+                },
+                {
+                  "title": "DAW 集成",
+                  "description": "提供 Pro Tools 与 Reaper 的基础发送与定位能力。",
+                  "source": "Aris Desktop"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "contributors": [
+        "Cindy",
+        "Cindy"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+TweetNaCl public-domain provenance notice
+
+Original authors:
+Daniel J. Bernstein, Bernard van Gastel, Wesley Janssen, Tanja Lange,
+Peter Schwabe, and Sjaak Smetsers.
+
+Upstream project: https://tweetnacl.cr.yp.to/
+Upstream software page: https://tweetnacl.cr.yp.to/software.html
+
+The upstream TweetNaCl implementation is released into the public domain.
+Aris carries an altered verify-only subset under `src/ed25519/`; keypair
+generation and signing functions were removed. The source files retain the
+original author attribution and identify the local alteration.

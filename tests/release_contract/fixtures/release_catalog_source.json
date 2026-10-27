@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "product": "aris",
+  "channel": "stable",
+  "release_revision": "2026-08-03.r1",
+  "release_tag": "v1.2.3",
+  "version": "1.2.3",
+  "published_at": "2026-08-03T04:00:00Z",
+  "ready": true,
+  "primary_asset": {
+    "role": "windows_x64_update",
+    "file": "release_update_payload.bin",
+    "url": "https://github.com/xindong/aris/releases/download/v1.2.3/Aris-1.2.3-win-x64-update.zip",
+    "size": 23,
+    "sha256": "bfec7bb1653c4acf6b0163eec101f057c716a2ed685cb94634040f7d0a745da4"
+  },
+  "signature": {
+    "algorithm": "ed25519",
+    "encoding": "lowercase_hex",
+    "key_id": "aris-update-stable-v1",
+    "manifest_url": "https://github.com/xindong/aris/releases/download/v1.2.3/manifest-win-x64-stable.json",
+    "manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "signature_url": "https://github.com/xindong/aris/releases/download/v1.2.3/manifest-win-x64-stable.json.sig",
+    "signature_hex": "22222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222222"
+  }
+}

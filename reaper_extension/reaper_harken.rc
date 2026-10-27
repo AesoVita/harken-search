@@ -1,0 +1,37 @@
+#include <windows.h>
+#include "../src/ReaperBridgeVersion.h"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION ARIS_REAPER_BRIDGE_VERSION_MAJOR,ARIS_REAPER_BRIDGE_VERSION_MINOR,ARIS_REAPER_BRIDGE_VERSION_PATCH,ARIS_REAPER_BRIDGE_VERSION_BUILD
+ PRODUCTVERSION ARIS_REAPER_BRIDGE_VERSION_MAJOR,ARIS_REAPER_BRIDGE_VERSION_MINOR,ARIS_REAPER_BRIDGE_VERSION_PATCH,ARIS_REAPER_BRIDGE_VERSION_BUILD
+ FILEFLAGSMASK 0x3fL
+#ifdef _DEBUG
+ FILEFLAGS 0x1L
+#else
+ FILEFLAGS 0x0L
+#endif
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName", "HarkenSearch\0"
+            VALUE "FileDescription", "HarkenSearch REAPER Extension\0"
+            VALUE "FileVersion", ARIS_REAPER_BRIDGE_VERSION_STRING "\0"
+            VALUE "InternalName", "reaper_auro\0"
+            VALUE "OriginalFilename", "reaper_harken.dll\0"
+            VALUE "ProductName", "HarkenSearch\0"
+            VALUE "ProductVersion", ARIS_REAPER_BRIDGE_VERSION_STRING "\0"
+            VALUE "BridgeProtocolVersion", "3\0"
+            VALUE "BridgeArchitecture", ARIS_REAPER_BRIDGE_ARCHITECTURE "\0"
+            VALUE "BridgeManifest", ARIS_REAPER_BRIDGE_MANIFEST "\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 1200
+    END
+END

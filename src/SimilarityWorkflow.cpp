@@ -1,0 +1,152 @@
+#include "SimilarityWorkflow.h"
+
+#include <utility>
+
+namespace HarkenSearch {
+
+bool SimilarityReference::operator==(const SimilarityReference& rhs) const {
+    return fileId == rhs.fileId && filePath == rhs.filePath &&
+        displayName == rhs.displayName;
+}
+
+SimilarityWorkflow::SimilarityWorkflow(Handler handler)
+    : handler_(std::move(handler)), worker_([this]() { Run(); }) {}
+
+SimilarityWorkflow::~SimilarityWorkflow() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        stopping_.store(true, std::memory_order_release);
+        pending_.reset();
+        completion_.reset();
+    }
+    wake_.notify_one();
+    if (worker_.joinable()) worker_.join();
+}
+
+void SimilarityWorkflow::InvalidateLocked() {
+    latestGeneration_.fetch_add(1, std::memory_order_acq_rel);
+    pending_.reset();
+    completion_.reset();
+    snapshot_.rows.clear();
+    snapshot_.error = SimilarityWorkflowError::None;
+    if (reference_) {
+        snapshot_.reference = *reference_;
+        snapshot_.status = SimilarityWorkflowStatus::Ready;
+    } else {
+        snapshot_.reference = {};
+        snapshot_.status = SimilarityWorkflowStatus::NoSelection;
+    }
+}
+
+void SimilarityWorkflow::SetDatabasePath(std::string path) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (databasePath_ == path) return;
+    databasePath_ = std::move(path);
+    InvalidateLocked();
+}
+
+void SimilarityWorkflow::SetReference(
+    std::optional<SimilarityReference> reference) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const bool unchanged = reference_.has_value() == reference.has_value() &&
+        (!reference || *reference_ == *reference);
+    if (unchanged) return;
+
+    reference_ = std::move(reference);
+    InvalidateLocked();
+}
+
+bool SimilarityWorkflow::RequestSearch(SimilarityPreset preset, int topK) {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (stopping_.load(std::memory_order_acquire) || !reference_) {
+            return false;
+        }
+
+        SimilarityRequest request;
+        request.generation =
+            latestGeneration_.fetch_add(1, std::memory_order_acq_rel) + 1;
+        request.databasePath = databasePath_;
+        request.reference = *reference_;
+        request.preset = preset;
+        request.topK = topK;
+        pending_ = std::move(request);
+        completion_.reset();
+        snapshot_.status = SimilarityWorkflowStatus::Searching;
+        snapshot_.reference = *reference_;
+        snapshot_.rows.clear();
+        snapshot_.error = SimilarityWorkflowError::None;
+    }
+    wake_.notify_one();
+    return true;
+}
+
+void SimilarityWorkflow::Poll() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!completion_) return;
+
+    SimilarityCompletion completion = std::move(*completion_);
+    completion_.reset();
+    if (!reference_ ||
+        completion.generation !=
+            latestGeneration_.load(std::memory_order_acquire) ||
+        !(completion.reference == *reference_)) {
+        return;
+    }
+
+    snapshot_.reference = *reference_;
+    snapshot_.rows = std::move(completion.rows);
+    snapshot_.error = completion.error;
+    snapshot_.status = completion.error == SimilarityWorkflowError::None
+        ? SimilarityWorkflowStatus::ResultsReady
+        : SimilarityWorkflowStatus::Error;
+}
+
+void SimilarityWorkflow::Invalidate() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    InvalidateLocked();
+}
+
+SimilarityWorkflowSnapshot SimilarityWorkflow::Snapshot() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return snapshot_;
+}
+
+void SimilarityWorkflow::Run() {
+    for (;;) {
+        std::optional<SimilarityRequest> request;
+        {
+            std::unique_lock<std::mutex> lock(mutex_);
+            wake_.wait(lock, [this]() {
+                return stopping_.load(std::memory_order_acquire) || pending_;
+            });
+            if (stopping_.load(std::memory_order_acquire)) return;
+            request = std::move(pending_);
+            pending_.reset();
+        }
+
+        const uint64_t requestGeneration = request->generation;
+        CancelCheck cancelled = [this, requestGeneration]() {
+            return stopping_.load(std::memory_order_acquire) ||
+                latestGeneration_.load(std::memory_order_acquire) !=
+                    requestGeneration;
+        };
+
+        SimilarityCompletion completion;
+        try {
+            completion = handler_(*request, cancelled);
+        } catch (...) {
+            completion.generation = request->generation;
+            completion.reference = request->reference;
+            completion.error = SimilarityWorkflowError::SearchFailed;
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            if (stopping_.load(std::memory_order_acquire)) return;
+            completion_ = std::move(completion);
+        }
+    }
+}
+
+} // namespace HarkenSearch

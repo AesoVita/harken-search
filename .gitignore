@@ -1,0 +1,135 @@
+# Third-party build artifacts - not committed to Git
+thirdparty/aubio/
+thirdparty/aubio_src/
+
+# QA snapshot directory (qa_snapshot.bat output)
+build_dbg/QA/
+build_harness_dbg/
+
+# CMake / Visual Studio build trees
+/build/
+/build-codex-update/
+/build_dbg/
+/build_home/
+/build_user/
+/build_beta/
+/build_test_off/
+/build_harness_dbg/
+/Testing/
+
+# Packaging outputs
+/installer/output/
+/package_beta/
+/release_beta/
+
+# Generated installer script: validate source HarkenSearch_Setup.iss, never commit its generated form.
+/installer/HarkenSearch_Setup_generated.iss
+/installer/*Setup_generated.iss
+
+# Local runtime and test databases
+*.db
+*.db-shm
+*.db-wal
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Local bug report JSON files (F-036)
+bug_reports/
+
+# Git worktrees
+.worktrees/
+
+# Market research raw data (large, unstructured)
+docs/market-research/*-raw.json
+
+# License key-generation private key - NEVER commit
+tools/.license_private_key
+tools/.license_public_key
+
+# Packer HMAC secret - NEVER commit
+tools/.pack_secret
+tools/.release_notes_ai_key
+tools/.release_notes_ai_base_url
+tools/.release_notes_ai_model
+
+# 根目录打包产物(F5/发布生成,不入库)
+/dist/
+/dist_qa/
+
+# Website
+website/node_modules/
+website/dist/
+website/.astro/
+website/.vercel/
+
+# Local AI/tool runtime state and generated caches
+/graphify-out/
+graphify-out/
+src/**/graphify-out/
+src/stress_test_bench_*.json
+
+# Temporary scratch files created during local agent/debug sessions
+__pycache__/
+*.pyc
+/scripts/__pycache__/
+/tests/__pycache__/
+/tools/__pycache__/
+/t28_out.log
+/tuizi.zip
+/tmp_*/
+/tmp_*
+/\.codex_tmp/
+/\.codex_tmp_*/
+
+# Local developer-only workspace layer
+/.local/
+# Keep runtime state private, but version the small harness kernel and its
+# registered tests so CTest is reproducible from a clean checkout.
+/.openclaw/*
+!/.openclaw/
+!/.openclaw/harness/
+/.openclaw/harness/*
+!/.openclaw/harness/assert_diagnostics.py
+!/.openclaw/harness/diagnostic_rules.json
+!/.openclaw/harness/failure_patterns.json
+!/.openclaw/harness/gui_smoke.py
+!/.openclaw/harness/harness_config.json
+!/.openclaw/harness/harness_core.py
+!/.openclaw/harness/harness_schema.py
+!/.openclaw/harness/qa_driver.py
+!/.openclaw/harness/run_local_harness.py
+!/.openclaw/tests/
+/.openclaw/tests/*
+!/.openclaw/tests/test_harness_core.py
+!/.openclaw/tests/test_harness_diagnostics.py
+!/.openclaw/tests/test_harness_qa_driver_contract.py
+!/.openclaw/tests/test_harness_repository_layout.py
+!/.openclaw/tests/test_harness_runner.py
+!/.openclaw/tests/test_harness_smoke.py
+.env.local
+*.local.json
+*.local.yaml
+*.local.yml
+*.local.ps1
+*.local.bat
+AGENTS.local.md
+SOUL.local.md
+TOOLS.local.md
+MEMORY.local.md
+
+# Brainstorm visual companion sessions
+.superpowers/
+
+# Local reverse-engineering / scratch artifacts
+/.analysis/
+/analysis_ghidra_projects/
+/META-INF/
+/com/
+/Module.manifest
+/extension.properties
+
+# Generic local build trees
+/build_*/
+/.vs/
+

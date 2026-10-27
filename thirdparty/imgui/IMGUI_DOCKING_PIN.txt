@@ -1,0 +1,10 @@
+source=https://github.com/ocornut/imgui
+branch=docking
+commit=d6d558009919275453f710539d8c835ff4623a8f
+version=1.92.6 WIP
+version_num=19259
+backends=imgui_impl_win32,imgui_impl_opengl3
+local_patches=none
+newline_note=vendored files use CRLF; content matches the commit after newline normalization
+capability_note=snapshot already defines IMGUI_HAS_DOCK and IMGUI_HAS_VIEWPORT
+manifest_drift=THIRD_PARTY_COMPONENTS.json says Dear ImGui 1.91.8; this pin follows the vendored header

@@ -1,0 +1,56 @@
+{
+  "authority_order": [
+    "docs/superpowers/specs/2026-07-28-aris-auto-update-design.md",
+    "committed updater code and tests",
+    "docs/superpowers/plans/2026-07-28-aris-auto-update-release-pipeline.md"
+  ],
+  "source": {
+    "kind": "GitHub Releases",
+    "repository": "xindong/aris",
+    "testing_api_path": "/repos/xindong/aris/releases",
+    "stable_api_path": "/repos/xindong/aris/releases/latest"
+  },
+  "artifacts": {
+    "bootstrap": "HarkenSearchBootstrap.exe",
+    "update_zip": "Aris-{version}-win-x64-update.zip",
+    "installer": "HarkenSearch-{version}-win-x64-setup.exe",
+    "testing_manifest": "manifest-win-x64-testing.json",
+    "stable_manifest": "manifest-win-x64-stable.json",
+    "detached_signature_suffix": ".sig"
+  },
+  "canonical_manifest": {
+    "schema_version": 1,
+    "builder": "tools/build_update_manifest.py",
+    "signed_payload": "raw manifest bytes",
+    "signature_encoding": "lowercase hexadecimal",
+    "asset_role": "immutable update ZIP only"
+  },
+  "release_side_controls": [
+    "deterministic_update_zip_with_bootstrap",
+    "exact_portable_installer_manifest_identity",
+    "hash_size_version_build_id_data_compatibility_binding",
+    "raw_byte_lowercase_hex_detached_signature",
+    "testing_list_and_stable_latest_public_discovery",
+    "separate_channel_signing_authority",
+    "idempotent_non_clobber_upload",
+    "same_zip_protected_stable_promotion",
+    "previous_stable_preservation_until_final_visibility",
+    "protected_null_self_substitution_safe_rollback",
+    "local_ephemeral_key_dry_run"
+  ],
+  "external_fail_closed_dependencies": [
+    "bootstrap_executable_target_and_delivery_layout",
+    "bootstrap_restart_recovery_readiness",
+    "packaging_profile_and_legacy_hmac_governance",
+    "data_compatibility_authority",
+    "installer_silent_target_elevation_arguments_exit_cleanup",
+    "installer_authenticity_policy",
+    "signed_release_note_policy",
+    "github_public_anonymous_visibility",
+    "github_environment_reviewers_branch_self_review_administration",
+    "channel_secret_public_key_provisioning",
+    "runtime_channel_public_key_pinning",
+    "tag_immutability_retention_governance",
+    "packaging_cmake_serial_prerequisite"
+  ]
+}

@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1568" height="855" viewBox="0 0 1568 855" role="img" aria-labelledby="title desc">
+  <title id="title">Aris public-safe workspace reference</title>
+  <desc id="desc">Abstract Aris workspace with generic sound-library rows and waveform previews.</desc>
+  <rect width="1568" height="855" rx="18" fill="#0b0d10"/>
+  <rect x="18" y="18" width="1532" height="62" rx="12" fill="#11151a" stroke="#252b33"/>
+  <circle cx="48" cy="49" r="12" fill="#e59a45"/>
+  <text x="74" y="57" fill="#f2f5f7" font-family="Segoe UI, sans-serif" font-size="24" font-weight="700">Aris</text>
+  <rect x="252" y="34" width="360" height="30" rx="15" fill="#181d24" stroke="#252b33"/>
+  <text x="276" y="55" fill="#a7b0ba" font-family="Segoe UI, sans-serif" font-size="14">搜索声音素材</text>
+  <rect x="20" y="98" width="270" height="540" rx="12" fill="#11151a" stroke="#252b33"/>
+  <text x="44" y="138" fill="#f2f5f7" font-family="Segoe UI, sans-serif" font-size="17" font-weight="600">文件夹</text>
+  <g fill="#a7b0ba" font-family="Segoe UI, sans-serif" font-size="15">
+    <text x="48" y="184">收藏</text><text x="48" y="224">最近使用</text><text x="48" y="264">项目素材</text><text x="48" y="304">环境与纹理</text><text x="48" y="344">冲击与转场</text>
+  </g>
+  <rect x="314" y="98" width="930" height="540" rx="12" fill="#11151a" stroke="#252b33"/>
+  <text x="344" y="138" fill="#f2f5f7" font-family="Segoe UI, sans-serif" font-size="17" font-weight="600">结果</text>
+  <g stroke="#252b33" stroke-width="1">
+    <path d="M338 168H1220M338 248H1220M338 328H1220M338 408H1220M338 488H1220M338 568H1220"/>
+  </g>
+  <g fill="#a7b0ba" font-family="Segoe UI, sans-serif" font-size="15">
+    <text x="350" y="202">素材 01</text><text x="350" y="282">素材 02</text><text x="350" y="362">素材 03</text><text x="350" y="442">素材 04</text><text x="350" y="522">素材 05</text><text x="350" y="602">素材 06</text>
+  </g>
+  <g fill="none" stroke="#6fbbb0" stroke-width="3" opacity=".9">
+    <path d="M500 202 C530 170 545 230 570 202 S610 170 635 202 S675 232 700 202 S740 170 770 202 S810 230 840 202 S880 170 910 202 S950 232 980 202 S1020 170 1050 202 S1090 230 1120 202"/>
+    <path d="M500 282 C530 250 545 310 570 282 S610 250 635 282 S675 312 700 282 S740 250 770 282 S810 310 840 282 S880 250 910 282 S950 312 980 282 S1020 250 1050 282 S1090 310 1120 282"/>
+    <path d="M500 362 C530 330 545 390 570 362 S610 330 635 362 S675 392 700 362 S740 330 770 362 S810 390 840 362 S880 330 910 362 S950 392 980 362 S1020 330 1050 362 S1090 390 1120 362"/>
+    <path d="M500 442 C530 410 545 470 570 442 S610 410 635 442 S675 472 700 442 S740 410 770 442 S810 470 840 442 S880 410 910 442 S950 472 980 442 S1020 410 1050 442 S1090 470 1120 442"/>
+    <path d="M500 522 C530 490 545 550 570 522 S610 490 635 522 S675 552 700 522 S740 490 770 522 S810 550 840 522 S880 490 910 522 S950 552 980 522 S1020 490 1050 522 S1090 550 1120 522"/>
+    <path d="M500 602 C530 570 545 630 570 602 S610 570 635 602 S675 632 700 602 S740 570 770 602 S810 630 840 602 S880 570 910 602 S950 632 980 602 S1020 570 1050 602 S1090 630 1120 602"/>
+  </g>
+  <rect x="1268" y="98" width="280" height="540" rx="12" fill="#11151a" stroke="#252b33"/>
+  <text x="1294" y="138" fill="#f2f5f7" font-family="Segoe UI, sans-serif" font-size="17" font-weight="600">试听</text>
+  <rect x="1294" y="170" width="228" height="120" rx="10" fill="#181d24"/>
+  <path d="M1308 230 C1328 190 1338 270 1358 230 S1388 190 1408 230 S1438 270 1458 230 S1488 190 1510 230" fill="none" stroke="#e59a45" stroke-width="3"/>
+  <rect x="20" y="666" width="1528" height="168" rx="12" fill="#11151a" stroke="#252b33"/>
+  <text x="48" y="706" fill="#f2f5f7" font-family="Segoe UI, sans-serif" font-size="17" font-weight="600">波形预览</text>
+  <path d="M48 770 C70 716 86 814 108 770 S148 718 170 770 S210 810 232 770 S272 718 294 770 S334 814 356 770 S396 718 418 770 S458 810 480 770 S520 718 542 770 S582 814 604 770 S644 718 666 770 S706 810 728 770 S768 718 790 770 S830 814 852 770 S892 718 914 770 S954 810 976 770 S1016 718 1038 770 S1078 814 1100 770 S1140 718 1162 770 S1202 810 1224 770 S1264 718 1286 770 S1326 814 1348 770 S1388 718 1410 770 S1450 810 1472 770" fill="none" stroke="#6fbbb0" stroke-width="4"/>
+</svg>

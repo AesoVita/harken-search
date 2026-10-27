@@ -1,0 +1,2069 @@
+{
+ "schema": 1,
+ "entries": [
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Acoustic",
+    "原声"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Action",
+    "动作"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Adventure",
+    "冒险"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Aggressive",
+    "激进"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Ambient",
+    "氛围"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Ambient",
+    "环境"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Angry",
+    "愤怒"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Anticipation",
+    "期待"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Anxious",
+    "焦虑"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Atmospheric",
+    "氛围的"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Ballad",
+    "民谣"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Bass",
+    "贝斯"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Blues",
+    "蓝调"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Bouncy",
+    "欢快"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Brass",
+    "铜管"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Bright",
+    "明亮"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Building",
+    "渐强"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Calm",
+    "平静"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Celebratory",
+    "庆祝"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Cheerful",
+    "欢乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Children",
+    "儿童"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Choir",
+    "合唱"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Classical",
+    "古典"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Comedy",
+    "喜剧"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Confident",
+    "自信"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Contemporary",
+    "当代"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Cooking",
+    "烹饪"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Cool",
+    "酷"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Corporate",
+    "企业"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Country",
+    "乡村"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Crime",
+    "犯罪"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dance",
+    "舞曲"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dance_Club",
+    "俱乐部舞曲"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dance_Disco",
+    "迪斯科"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dance_Techno",
+    "电子舞曲"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dance_Trance",
+    "恍惚电子"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dancing",
+    "舞蹈"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dark",
+    "黑暗"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Determined",
+    "坚定"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Documentary",
+    "纪录片"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Drama",
+    "剧情"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dramatic",
+    "戏剧性"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Driving",
+    "驱动"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Driving",
+    "驾驶"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Drums",
+    "鼓"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Drums_Acoustic",
+    "原声鼓"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Drums_Electronic",
+    "电子鼓"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Dynamic",
+    "动态"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Easy Listening",
+    "轻音乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Edgy",
+    "前卫"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Electronica",
+    "电子"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Elegant",
+    "优雅"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Emotional",
+    "情感的"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Energetic",
+    "活力"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Epic",
+    "史诗"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Ethereal",
+    "空灵"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Ethnic",
+    "民族"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Experimental",
+    "实验"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Fanfare",
+    "号角"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Fantasy",
+    "幻想"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Fashion",
+    "时尚"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Fast",
+    "快"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Feelgood",
+    "感觉良好"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Flowing",
+    "流畅"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Flute",
+    "长笛"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Folk",
+    "民间"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Fun",
+    "有趣"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Funk",
+    "放克"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Funky",
+    "放克的"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Futuristic",
+    "未来"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Gentle",
+    "温柔"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Gospel",
+    "福音"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Groovy",
+    "律动"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Guitar",
+    "吉他"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Guitar_Acoustic",
+    "木吉他"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Guitar_Electric",
+    "电吉他"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Happy",
+    "快乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Harmonica",
+    "口琴"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Heavy",
+    "沉重"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Hopeful",
+    "希望"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Horn",
+    "号"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Human Interest",
+    "人文"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Inspirational",
+    "励志"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Intense",
+    "强烈"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Intimate",
+    "亲密"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Jazz",
+    "爵士"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Keyboard",
+    "键盘"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Laid-back",
+    "悠闲"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Latin",
+    "拉丁"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Light",
+    "轻快"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Light Activity",
+    "轻活动"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Medium",
+    "中等"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Medium Fast",
+    "中快"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Medium Slow",
+    "中慢"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Mellow",
+    "柔和"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Melodic",
+    "旋律的"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Moody",
+    "情绪化"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Mysterious",
+    "神秘"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "New Age",
+    "新世纪"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Opera",
+    "歌剧"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Orchestral",
+    "管弦乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Organ",
+    "管风琴"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Outdoors",
+    "户外"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Party",
+    "派对"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Percussion",
+    "打击乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Piano",
+    "钢琴"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Pop",
+    "流行"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Positive",
+    "积极"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Powerful",
+    "强大"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "R&B",
+    "节奏蓝调"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Reality",
+    "真人秀"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Reggae",
+    "雷鬼"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Relaxed",
+    "放松"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Relaxing",
+    "放松"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Retro",
+    "复古"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Rhythmic",
+    "节奏感"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Rock",
+    "摇滚"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Rock_Alternative",
+    "另类摇滚"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Rock_Metal",
+    "金属"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Romantic",
+    "浪漫"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Sad",
+    "悲伤"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Sax",
+    "萨克斯"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Slow",
+    "慢"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Smooth",
+    "顺滑"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Soft",
+    "柔软"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Specialty_Children",
+    "儿童"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Specialty_Comedy",
+    "喜剧"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Specialty_Holiday",
+    "节日"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Specialty_Horror",
+    "恐怖"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Specialty_News",
+    "新闻"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Sports",
+    "体育"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Sports",
+    "运动"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Strings",
+    "弦乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Strong",
+    "强壮"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Surf",
+    "冲浪"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Suspense",
+    "悬疑"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Sweet",
+    "甜美"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Synth",
+    "合成器"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Tense",
+    "紧张"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Thriller",
+    "惊悚"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Trailers",
+    "预告片"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Tranquil",
+    "宁静"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Underscore",
+    "配乐"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Upbeat",
+    "乐观"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Uplifting",
+    "振奋"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Urban",
+    "都市"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Urban_Hip Hop",
+    "嘻哈"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Very Fast",
+    "非常快"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Very Slow",
+    "非常慢"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Vocals",
+    "人声"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Western",
+    "西部"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Wild",
+    "狂野"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Wind",
+    "木管"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Working Out",
+    "锻炼"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "World",
+    "世界"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/TagSystem.cpp",
+   "pair": [
+    "Yoga & Meditation",
+    "瑜伽冥想"
+   ],
+   "rationale": "O3 裁决保留数据（facet 标签 en↔zh 双列）"
+  },
+  {
+   "path": "src/UCSCategory.cpp",
+   "pair": [
+    "SF",
+    "その他"
+   ],
+   "rationale": "O3 裁决保留数据（addEntry 多语言列行内相邻）"
+  },
+  {
+   "path": "src/UCSCategory.cpp",
+   "pair": [
+    "SF",
+    "エイリアン"
+   ],
+   "rationale": "O3 裁决保留数据（addEntry 多语言列行内相邻）"
+  },
+  {
+   "path": "src/UCSCategory.cpp",
+   "pair": [
+    "SF",
+    "レーザー"
+   ],
+   "rationale": "O3 裁决保留数据（addEntry 多语言列行内相邻）"
+  },
+  {
+   "path": "src/UCSCategory.cpp",
+   "pair": [
+    "SF",
+    "ロボット"
+   ],
+   "rationale": "O3 裁决保留数据（addEntry 多语言列行内相邻）"
+  },
+  {
+   "path": "src/UCSCategory.cpp",
+   "pair": [
+    "SF",
+    "宇宙船"
+   ],
+   "rationale": "O3 裁决保留数据（addEntry 多语言列行内相邻）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "(unsaved)",
+    "(未保存)"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Actions",
+    "操作"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "ActorMixer",
+    "Actor 混音器"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Add Child Layer",
+    "添加子层"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Add Parent Layer",
+    "添加父层"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Always",
+    "总是应用"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Apply Template",
+    "模板应用"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "BlendContainer",
+    "混合容器"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Build Chain",
+    "结构链路"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Cancel",
+    "取消"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Connect",
+    "连接"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Connected",
+    "已连接"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Connection",
+    "连接"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Connection & Project",
+    "连接与工程"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Connection error",
+    "连接错误"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Copy Failed",
+    "复制失败"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "CreateNew",
+    "创建新项"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Current transfer structure",
+    "当前传输结构"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Delete",
+    "删除"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Delete this preset?",
+    "确认删除此预设？"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Destination",
+    "导入目标"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Diagnostics",
+    "诊断"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Disconnect",
+    "断开"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Disconnected",
+    "未连接"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Existing",
+    "已存在"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Failed",
+    "失败"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Files",
+    "文件"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "If Sound Exists",
+    "同名音效处理"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Import Destination",
+    "导入位置"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Import Failed",
+    "导入失败"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Imported",
+    "已导入"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Issue",
+    "异常"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Issues",
+    "异常"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Layer",
+    "层级"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Layers",
+    "层数"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Leaf",
+    "叶子"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Leaf row receives the imported audio file and is always SoundSFX.",
+    "叶子层固定接收导入音频，并始终是 SoundSFX。"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Missing",
+    "缺失"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Name Template",
+    "名称模板"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "New",
+    "新建"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "NewOnly",
+    "仅新建时"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "No preview available",
+    "当前没有可用预览"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "No target destination selected yet.",
+    "当前还没有选择导入目标。"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "No trace path available.",
+    "当前没有可用日志路径。"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "No transfer result yet.",
+    "当前还没有传输结果。"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Nodes",
+    "节点"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "OK",
+    "确定"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Originals Subfolder",
+    "素材子目录"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Parent ",
+    "父层 "
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Preset",
+    "预设"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Preview",
+    "预览视窗"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Project Path",
+    "工程路径"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Property Template Source",
+    "属性模板来源"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "RandomContainer",
+    "随机容器"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Ready",
+    "就绪"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Refresh Wwise once, then the structure tree will appear here.",
+    "先从 Wwise 刷新一次，结构树就会显示在这里。"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Refresh from Wwise",
+    "从 Wwise 刷新"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Rename",
+    "重命名"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Rename preset to:",
+    "将预设重命名为："
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Rename preset to:",
+    "重命名预设为："
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Replace",
+    "替换"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Replaced",
+    "替换"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Result",
+    "结果"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Save",
+    "保存"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Save As...",
+    "另存为..."
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Save as preset:",
+    "另存为预设："
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "SequenceContainer",
+    "顺序容器"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Set",
+    "已设置"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Skipped",
+    "已跳过"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Snapshot",
+    "快照"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Staged",
+    "已暂存"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Staged Sources",
+    "暂存源文件"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "SwitchContainer",
+    "切换容器"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Target",
+    "目标"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Target parent in Wwise",
+    "Wwise 父级节点"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Template",
+    "已套模板"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Template Failed",
+    "模板失败"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Transfer",
+    "执行传输"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Transfer to Wwise",
+    "传输到 Wwise"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Transfer to Wwise (F-034)",
+    "传输到 Wwise (F-034)"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Type",
+    "类型"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Under Originals/SFX",
+    "位于 Originals/SFX 下"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "UseExisting",
+    "使用现有"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Viewport",
+    "视图"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "VirtualFolder",
+    "虚拟文件夹"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "WAAPI Host",
+    "WAAPI 主机"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "WAAPI Port",
+    "WAAPI 端口"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "WAAPI Trace Log",
+    "WAAPI 跟踪日志"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "WorkUnit",
+    "工作单元"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "Wwise Structures",
+    "Wwise 结构"
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "issue: ",
+    "异常: "
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/WwiseTransferPanel.cpp",
+   "pair": [
+    "issue: ",
+    "异常："
+   ],
+   "rationale": "wz Wwise 豁免带（Lead 裁决在册，10-A 正册⑦）"
+  },
+  {
+   "path": "src/main.cpp",
+   "pair": [
+    "Bite",
+    "怪物"
+   ],
+   "rationale": "AI 封面词库（侦察⑨正册）"
+  },
+  {
+   "path": "src/main.cpp",
+   "pair": [
+    "Bubble",
+    "水"
+   ],
+   "rationale": "AI 封面词库（侦察⑨正册）"
+  },
+  {
+   "path": "src/main.cpp",
+   "pair": [
+    "Cast",
+    "光"
+   ],
+   "rationale": "AI 封面词库（侦察⑨正册）"
+  },
+  {
+   "path": "src/main.cpp",
+   "pair": [
+    "Hydraulic",
+    "科幻"
+   ],
+   "rationale": "AI 封面词库（侦察⑨正册）"
+  },
+  {
+   "path": "src/main.cpp",
+   "pair": [
+    "Splatter",
+    "血肉"
+   ],
+   "rationale": "AI 封面词库（侦察⑨正册）"
+  }
+ ]
+}
