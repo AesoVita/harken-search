@@ -1,0 +1,46 @@
+#pragma once
+
+#include "imgui.h"
+
+struct AppState;
+struct ThemeColorScheme;
+
+// @stage7-contract
+// API contract: UI-thread drawing of the right file-info panel shell. AppState
+// is borrowed for one frame and not retained. Cover-wall data, metadata writes,
+// and path-chip ownership remain in the composition root.
+
+struct FileInfoPanelChrome {
+    ImVec4 kAccent;
+    ImVec4 kSelected;
+    ImVec4 kPanelBase;
+    ImVec4 kShellSurface;
+    ImVec4 kShellSectionBg;
+    ImVec4 kShellSectionBgStrong;
+    ImVec4 kShellSectionEdge;
+    ImVec4 kShellSectionAccent;
+    ImVec4 kPanelTab;
+    ImVec4 kPanelTabHover;
+    ImVec4 kPanelTabActive;
+    ImVec4 kPanelTabUnfocused;
+    ImVec4 kPanelTabUnfocusedActive;
+    ImVec4 kMutedButton;
+    ImVec4 kPathChipBase;
+    ImVec4 kPathChipHover;
+    ImVec4 kPathChipActive;
+    ImVec4 kPathChipText;
+    ImVec4 kCurrentItemText;
+    ImVec4 kInfoLabelText;
+    ImVec4 kInfoMutedText;
+};
+
+FileInfoPanelChrome MakeFileInfoPanelChrome();
+void DecorateFileInfoTab(const FileInfoPanelChrome& chrome, bool selected);
+void RenderFileInfoFieldVisibilityMenu(AppState& state);
+void RenderFileInfoPanelTabContents(
+    AppState& state,
+    float panelWidth,
+    const FileInfoPanelChrome& chrome,
+    ImGuiTabItemFlags artworkFlags);
+void RenderFileInfoPanelContent(AppState& state, float panelWidth);
+int PushFileInfoShellStyle(const ThemeColorScheme& tcs);

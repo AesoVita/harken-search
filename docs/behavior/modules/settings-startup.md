@@ -1,0 +1,187 @@
+# Settings / Startup Behavior Contract
+
+## Header
+
+**ID:** BDD-SETTINGS-STARTUP
+**Module:** Settings / Startup
+**Status:** Active
+**Priority:** P1
+**Owner:** Engineering
+**Created:** 2026-06-03
+**Last Updated:** 2026-09-17
+
+## Product Behavior
+
+**User promise:** Aris starts predictably, preserves safe settings, and does not perform surprising expensive or network-like work before the user can operate.
+**Primary workflow:** User launches Aris, loads recent libraries/settings, and expects startup reconciliation and feature defaults to be safe.
+**Non-goals:** This contract does not define full installer/update behavior.
+
+## 中文语义
+
+**用户承诺：** 无论首次启动、正常启动还是最近库丢失，Aris 都能进入可理解、可操作的安全状态，不会偷偷清理用户数据或启动昂贵后台工作。
+**核心流程：** 用户启动 Aris；应用加载设置、edition flag 和最近库列表；缺失库以明确的受保护状态显示，用户再决定是否重连、移除或重新扫描。
+**非目标：** 这份契约不定义完整安装器、自动更新流程或跨版本迁移之外的产品授权策略。
+
+## BDD Scenarios
+
+### Happy Path
+
+- Given 已满足以下前置条件：a valid settings file and recent library
+- When 执行以下操作：Aris starts
+- Then 应得到以下结果：default settings, edition flags, and startup reconciliation produce a usable UI state
+- Given 已满足以下前置条件：the Windows WebView2 startup shell is shown
+- When 执行以下操作：Aris enters the startup gate on a normal launch
+- Then 应得到以下结果：the legacy login form is replaced by the welcome surface, and continuing from that surface leads directly into loading
+- Given Windows 启动欢迎页或后续加载页显示左上角品牌区
+- When 官方横版 Logo 文件随程序存在
+- Then 两页显示同一份 HARKEN search 字标，保留原有位置；图片缺失时仍显示 Harken Search 文字
+- Given 已满足以下前置条件：Browser mode stores user workflow state such as recursive child-audio scope
+- When 执行以下操作：settings are saved and restored on the next launch
+- Then 应得到以下结果：Aris restores that scope truthfully instead of silently resetting to current-directory mode
+
+### Edge Cases
+
+- Given 已满足以下前置条件：no settings file exists because the user has never run Aris before
+- When 执行以下操作：startup runs
+- Then 应得到以下结果：Aris creates safe in-memory defaults, shows an empty/no-library state, and waits for explicit user library selection before scan/reconcile work
+- Given 已满足以下前置条件：missing DB paths, disabled auto-rescan, or first-run defaults
+- When 执行以下操作：startup runs
+- Then 应得到以下结果：expensive reconcile paths remain opt-in and missing libraries are shown as unavailable/guarded entries instead of being silently removed
+- Given 已满足以下前置条件：the user switches between built-in stock themes or saves a custom theme from the theme editor
+- When 执行以下操作：settings are saved and Aris applies the theme on the next frame or next launch
+- Then 应得到以下结果：stock themes remain stock selections instead of being marked customized, and the saved custom theme name remains available so `theme_custom.json` can be reloaded.
+- Given 已满足以下前置条件：a built-in stock theme uses token chrome on toolbar/transport surfaces
+- When 执行以下操作：the stock theme is applied without using the custom-theme flag
+- Then 应得到以下结果：toolbar and transport token chrome remains selected by explicit stock-theme identity instead of depending on `ThemeColors::customized()`.
+
+### Failure / Recovery
+
+- Given 已满足以下前置条件：settings are missing, encrypted values fail, or a DB path is unavailable
+- When 执行以下操作：startup loads configuration
+- Then 应得到以下结果：Aris falls back safely without silent destructive cleanup
+
+### Non-Functional
+
+- Given 已满足以下前置条件：cold startup
+- When 执行以下操作：initialization runs
+- Then 应得到以下结果：startup does not start full scan, cover-wall warmup, waveform backfill, or network-like work before UI readiness unless the setting explicitly opts in, and it records diagnostics for those state decisions.
+
+## Interface Binding
+
+| Interface / Entry | Kind | Source | Expected behavior |
+| --- | --- | --- | --- |
+| `AppSettings` defaults | API | tests | Safe default values |
+| `theme` / `customThemeName` | UI | source scan + tests | Stock theme identity, stock token chrome, and saved custom theme availability persist across save/load/startup |
+| Browser scope settings | API | source scan + tests | Browser recursive/current-dir scope survives save/load without drift |
+| startup welcome entry | API | source-contract tests + manual QA | the startup entry surface is the welcome page and continues directly into loading |
+| startup brand wordmark | UI | source-contract test + manual QA | welcome and loading use the same bundled official logo, with text fallback when the file is absent |
+| startup reconciliation | API | tests | Missing DB/library state handled safely |
+| product edition flags | API | tests | Edition-gated defaults remain stable |
+| settings encryption | API | tests | Sensitive settings are protected |
+| startup diagnostics | diagnostics | QA protocol | Runtime state decisions are visible |
+
+## Graphify Binding
+
+**Source graph:** `graphify-out/main/interface-call-graph.json` and `graphify-out/main/audit-call-graph.json`
+**Impact target(s):** `AppSettings`, startup reconciliation helpers, product edition helpers
+**Audit classification requirement:** startup and settings unknowns must be reviewed before completion because they affect every session.
+**Dynamic calls:** review startup container/config paths.
+**Unknown calls:** review settings/startup entries in `UNKNOWN_CALLS.md`.
+
+## TDD / QA Proof
+
+| Proof ID | Kind | Artifact / command / event | Pass signal | Status |
+| --- | --- | --- | --- | --- |
+| TEST-APP-SETTINGS | unit | `TestAppSettingsDefaults` | defaults and cached matching pass | active |
+| TEST-STARTUP-RECONCILE | integration | `TestStartupReconciliation` | startup/missing DB behavior passes | active |
+| TEST-PRODUCT-EDITION | unit | `TestProductEdition` | edition gating passes | active |
+| TEST-SETTINGS-ENCRYPTION | unit | `TestSettingsEncryption` | encryption behavior passes | active |
+| TEST-OUTPUT-DEVICE-COMBO | unit | `TestOutputDeviceComboItem` | identical-name output devices share one display label but keep distinct ImGui `##` Selectable IDs; combo strings stay stable after `c_str()` | active |
+| DIAG-STARTUP | diagnostics | `TestStartupReconciliation` startup source-contract assertions | startup branch diagnostics markers present | active |
+| TEST-STARTUP-WELCOME | source-contract | `TestStartupReconciliation` | welcome entry replaces the legacy login form and continues into loading | active |
+| TEST-THEME-PERSISTENCE | source-contract | source scan + `TestThemeColors` | stock theme application does not set `ThemeColors::customized()`, stock token chrome is keyed by stock theme identity, and custom theme name is written/read by settings IO | active |
+
+## Missing Coverage
+
+- Source-contract coverage now asserts the first-run no-database startup branch and CTA hook; full GUI smoke for perceived onboarding clarity remains human-only.
+- Welcome-entry visual polish and screenshot proof remain human-only even when source-contract coverage is green.
+- Residual gap: migration from older settings payloads is not yet asserted with fixture upgrades.
+- Human-only verification: perceived startup clarity and button prominence.
+
+## Change Gate
+
+- [x] Refresh Graphify main and audit graphs with `py tools/graphify_auto_refresh.py --once`.
+- [x] Re-run startup/settings tests.
+- [x] Review settings/startup `UNKNOWN_BLOCKING` entries.
+- [x] Update this contract if startup defaults or reconciliation semantics change.
+
+## Decision Log
+
+| Date | Decision | Reason | Decider |
+| --- | --- | --- | --- |
+| 2026-06-03 | Added first-run and guarded missing-library startup semantics. | Review found first startup and visible missing-library behavior were not concrete enough. | Engineering |
+| 2026-06-10 | Replaced implicit default-database startup fallback with an explicit no-database empty state and CTA reuse contract. | Product requirement now requires first-run users to consciously create or open a database before library work begins. | Engineering |
+| 2026-06-24 | Added theme identity persistence semantics. | User reported stock theme single/double-click token drift and custom token colors not persisting; settings must preserve custom theme name while stock application must not masquerade as customized. | Engineering |
+| 2026-06-25 | Kept stock token chrome explicit after clearing the custom flag. | Dark/LapisBlue previously reached toolbar/transport token chrome through the erroneous customized flag; the state fix must not silently switch them to fallback chrome. | Engineering |
+
+## 第8批异常退出启动弹窗关闭
+
+上次没正常关掉再打开，直接进入工作界面，不先弹异常退出报告窗。崩溃检测和既有反馈能力保留。这不是崩溃系统重写，也不增加新提示。
+
+### 五项所有权
+
+- identity：隔离 settingsDir 下的 aris_sentinel.lock、crashDetectedOnStartup，以及既有 showCrashReportDialog 字段。身份不是生产崩溃文件，也不是进程号。
+- generation：WindowsMain 仍检测哨兵并记下标志，同时为本次会话写哨兵。界面当帧只把 crashDetectedOnStartup 清成 false。正常退出仍删除哨兵，不再打开启动报告窗。
+- cancel：没有新的异步任务。清掉启动标志只取消启动弹窗，不取消崩溃检测、哨兵写入或清理、MiniDump 或 SEH。
+- stale-result：标志只消费一次。没有 future、ports 或跨帧 this。启动路径不能再凭 showCrashReportDialog 或旧崩溃文件把窗打开。
+- 生命周期：WindowsMain 原有哨兵、MiniDump 和 SEH 寿命不变。标志在界面线程消费。帮助菜单里的反馈提交能力保留，启动路径不再启动那次发送。能力还在，不等于反馈凭据已经启用，也不等于网络发送已经证明。
+
+### 七个保护键
+
+Crash_DlgTitle、Main_CrashTitleText、Main_CrashReportNote、Crash_SendReport、Fb_CrashReportTitle、Main_AttachDiagLog500、Main_DismissBtn 仍留在账本里，并列入生成器保护名单。不删除文案，也不新增可见文案或语言键。
+
+### 验证分类
+
+源码合同证明启动窗不再 OpenPopup、不再模态、不再把 showCrashReportDialog 设为 true，并仍把 crashDetectedOnStartup 清成 false。保护键测试和旧反馈门只证明源码约束。产品编译只证明这批源码能编进隔离预览。这些都不是界面体验、真实异常退出后再开、人眼、听感、真实网络库或性能证明。
+
+### 回退
+
+只撤回本批启动窗、新增测试、CMake 注册、生成器里这七个保护键、本附录和台账两行。恢复到本批允许基线。不回退前面已经核收的批次，不改用户配置、数据库结构或迁移。
+## 默认播放器关联（第12批）
+
+本批把已交付的默认播放器关联修复搬回 745 旧布局。普通非隔离程序里，用户点「设为默认」会打开系统默认应用设置，让用户自己选格式；不再假写受保护 UserChoice。隔离预览里 Set/Remove 都不能打开系统设置。ProgId 仍是 Auro.AudioFile。这不是新播放器或新文件格式。
+
+### 五项所有权
+
+1. identity：兼容 ProgId、实际可执行路径、系统当次有效关联与用户主动点击。Capabilities 不是默认授权。
+2. generation：一次同步登记/查询/点击，无新 worker。系统默认以当次 QueryEffectiveFileAssociation 为准。
+3. cancel：745 取消清本 ProgId 的 UserChoice/Latest 路径保留。隔离时 Set/Remove 都不开系统设置。
+4. stale-result：不把旧 UserChoice 冒充系统默认。源码迁移不等于用户电脑已关联。
+5. 生命周期：Launch 在任何 COM/UI/OpenUrl 之前因 PreviewIsolationActive 返回 false。测试不执行真 HKCU。
+
+### 危险测试不 RUN
+
+TestDefaultAudioPlayerAssociation 直接改真 HKCU，可 BUILD 不可 RUN、不可 CTest。
+
+### 回退
+
+撤回本批 14 文件到基线，删除本批新建 Python 只读测试。
+
+### 证据局限
+
+已证源码合同与完整产品编译。未证 GUI、系统默认应用设置、注册表、E2E。
+## 设置搜索高亮闪动可测性（第13批）
+
+设置搜索、关键词高亮、切页和滚动定位已在 745。本批只把已交付的闪动公式抽成可传 elapsed 的纯函数，不改搜索产品。
+
+### 五项所有权
+
+1. identity：命中条目仍是已有 SettingsSearchEntry/cursor。纯公式不持身份、不写设置值。
+2. generation：仍由查询/cursor 刷新 g_settingsSearchPulseT0。测试只传 elapsed，不注入全局时钟。
+3. cancel：清空搜索仍是 hasSettingsSearch=false，无新任务。
+4. stale-result：旧 T0 只影响闪动相位，不写业务值。
+5. 生命周期：inline 纯公式无堆分配；OverlayLabelHighlight 仍在 UI 线程绘制。负 elapsed 与 >=1 为 0.38。
+
+### 未证
+
+不证 GUI/人眼/真机闪动感。测试可推进 elapsed。

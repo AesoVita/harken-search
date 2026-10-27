@@ -1,0 +1,22 @@
+{
+  "schema_version": 2,
+  "note": "RQ-20260915-04 建立：扫描面补齐（.mm、src/webui、markup 文本节点、大小写）后暴露的已知残留，每条标注归属卡号。键含出现序号，故同文件新增同文重复文案也会判为回潮；表中条目在代码中消失则判为陈旧，须删除。2026-10-24 RQ-20260917-08：用户决定先保留旧 WebUI 资料，以备以后考虑网页版；这两条 owner 指向作出保留决定的卡，不代表必须改写历史资料。",
+  "entries": {
+    "src/webui/WebUiEmbedded.generated.h::55e4551ce8bf6680#1": {
+      "path": "src/webui/WebUiEmbedded.generated.h",
+      "line": 12,
+      "fragment": "AURO",
+      "brand": "AURO",
+      "owner": "RQ-20260917-08",
+      "why": "2026-10-24 用户决定保留未接入正式产品的旧 WebUI 生成文件，供将来评估网页版；生成工具目前缺失，旧标题不手改"
+    },
+    "src/webui/src/components/runtime-twin/runtime-contract.ts::e6d023dfb3f9c266#1": {
+      "path": "src/webui/src/components/runtime-twin/runtime-contract.ts",
+      "line": 24,
+      "fragment": "Aris - JUSTMIXRFull (0 文件)",
+      "brand": "Aris",
+      "owner": "RQ-20260917-08",
+      "why": "2026-10-24 用户决定保留旧 WebUI 历史测量记录，供将来评估网页版；保留 2026-07-21 日期和原始窗口标题"
+    }
+  }
+}

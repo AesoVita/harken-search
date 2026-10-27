@@ -1,0 +1,546 @@
+#include "ui/CoreWorkspaceStyle.h"
+#include "ui/ModuleWindowShell.h"
+
+#include "imgui.h"
+#include "imgui_internal.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <initializer_list>
+
+namespace {
+
+int g_failures = 0;
+
+void Check(bool condition, const char* message) {
+    if (condition) return;
+    std::fprintf(stderr, "FAIL: %s\n", message);
+    ++g_failures;
+}
+
+bool Near(float left, float right, float epsilon = 0.0001f) {
+    return std::fabs(left - right) <= epsilon;
+}
+
+bool SameColor(const ImVec4& left, const ImVec4& right) {
+    return Near(left.x, right.x) && Near(left.y, right.y) &&
+           Near(left.z, right.z) && Near(left.w, right.w);
+}
+
+bool SameRgb(const ImVec4& left, const ImVec4& right) {
+    return Near(left.x, right.x) && Near(left.y, right.y) && Near(left.z, right.z);
+}
+
+float SurfaceLuma(const ImVec4& color) {
+    return color.x * 0.299f + color.y * 0.587f + color.z * 0.114f;
+}
+
+float MaxRgb(const ImVec4& color) {
+    return (std::max)((std::max)(color.x, color.y), color.z);
+}
+
+aura::ui::workspace::CoreWorkspacePalette BuildTestPalette() {
+    using namespace aura::ui::workspace;
+    CoreWorkspacePaletteInput input;
+    input.applicationSurface = ImVec4(0.01f, 0.02f, 0.03f, 1.0f);
+    input.dockedSurface = ImVec4(0.11f, 0.12f, 0.13f, 1.0f);
+    input.elevatedSurface = ImVec4(0.21f, 0.22f, 0.23f, 1.0f);
+    input.perimeter = ImVec4(0.31f, 0.32f, 0.33f, 0.75f);
+    input.splitter = ImVec4(0.41f, 0.42f, 0.43f, 0.65f);
+    input.primaryText = ImVec4(0.91f, 0.92f, 0.93f, 1.0f);
+    input.mutedText = ImVec4(0.61f, 0.62f, 0.63f, 1.0f);
+    input.functionalAccent = ImVec4(0.10f, 0.80f, 0.90f, 1.0f);
+    input.error = ImVec4(0.90f, 0.20f, 0.20f, 1.0f);
+    return BuildCoreWorkspacePalette(input);
+}
+
+void TestInvariantMetrics() {
+    using namespace aura::ui::workspace;
+    Check(Near(kCoreWorkspaceMetrics.space4, 4.0f), "spacing rhythm starts at 4 px");
+    Check(Near(kCoreWorkspaceMetrics.space8, 8.0f), "spacing rhythm includes 8 px");
+    Check(Near(kCoreWorkspaceMetrics.space12, 12.0f), "spacing rhythm includes 12 px");
+    Check(Near(kCoreWorkspaceMetrics.space16, 16.0f), "spacing rhythm includes 16 px");
+    Check(Near(kCoreWorkspaceMetrics.perimeterWidth, 1.0f), "module perimeter is one pixel");
+    Check(Near(kCoreWorkspaceMetrics.splitterWidth, 1.0f), "splitter line is one pixel");
+    Check(Near(kCoreWorkspaceMetrics.compactControlHeight, 28.0f), "repeated controls stay compact");
+    Check(Near(kCoreWorkspaceMetrics.compactControlRadius, 4.0f), "repeated controls share a restrained radius");
+    Check(kSurfaceLevelCount == 3, "workspace exposes exactly three surface levels");
+    Check(static_cast<int>(SurfaceLevel::Application) == 0 &&
+              static_cast<int>(SurfaceLevel::Docked) == 1 &&
+              static_cast<int>(SurfaceLevel::Elevated) == 2,
+          "surface levels are application, docked, and elevated only");
+}
+
+void TestPaletteIsCallerSupplied() {
+    using namespace aura::ui::workspace;
+    const CoreWorkspacePalette palette = BuildTestPalette();
+
+    Check(SameColor(ResolveSurfaceColor(palette, SurfaceLevel::Application),
+                    ImVec4(0.01f, 0.02f, 0.03f, 1.0f)),
+          "application surface comes from palette input");
+    Check(SameColor(ResolveSurfaceColor(palette, SurfaceLevel::Docked),
+                    ImVec4(0.11f, 0.12f, 0.13f, 1.0f)),
+          "docked surface comes from palette input");
+    Check(SameColor(ResolveSurfaceColor(palette, SurfaceLevel::Elevated),
+                    ImVec4(0.21f, 0.22f, 0.23f, 1.0f)),
+          "elevated surface comes from palette input");
+    Check(SameColor(ResolveAccentColor(palette, AccentRole::None), palette.perimeter),
+          "idle decoration does not consume the functional accent");
+    Check(SameColor(ResolveAccentColor(palette, AccentRole::Selected), palette.functionalAccent),
+          "selection may use the functional accent");
+    Check(SameColor(ResolveAccentColor(palette, AccentRole::Focused), palette.functionalAccent),
+          "focus may use the functional accent");
+    Check(SameColor(ResolveAccentColor(palette, AccentRole::Playback), palette.functionalAccent),
+          "playback may use the functional accent");
+    Check(SameColor(ResolveAccentColor(palette, AccentRole::Active), palette.functionalAccent),
+          "active state may use the functional accent");
+    Check(!SameRgb(ResolveSplitterColor(palette, SplitterInteraction::Hovered),
+                   palette.functionalAccent),
+          "splitter hover remains neutral rather than consuming the functional accent");
+    Check(SameColor(ResolveSplitterColor(palette, SplitterInteraction::Active),
+                    palette.functionalAccent),
+          "active splitter may use the functional accent");
+}
+
+void TestSurfaceHierarchyResolver() {
+    using namespace aura::ui::workspace;
+
+    WorkspaceSurfaceBasis dark;
+    dark.application = ImVec4(0.059f, 0.078f, 0.106f, 1.0f);
+    dark.frame = ImVec4(0.094f, 0.125f, 0.165f, 1.0f);
+    dark.toolbar = ImVec4(0.063f, 0.082f, 0.110f, 1.0f);
+    dark.elevated = ImVec4(0.082f, 0.110f, 0.145f, 1.0f);
+    dark.lightChrome = false;
+    const WorkspaceSurfaceLevels darkLevels = ResolveWorkspaceSurfaceLevels(dark);
+    Check(SurfaceLuma(darkLevels.docked) - SurfaceLuma(darkLevels.application) >= 0.027f,
+          "dark workspace keeps a readable docked lift");
+    Check(SurfaceLuma(darkLevels.elevated) - SurfaceLuma(darkLevels.application) >= 0.050f,
+          "dark workspace keeps a distinct elevated lift");
+    Check(SurfaceLuma(darkLevels.elevated) > SurfaceLuma(darkLevels.docked),
+          "dark workspace surface order remains application, docked, elevated");
+
+    WorkspaceSurfaceBasis light;
+    light.application = ImVec4(0.965f, 0.950f, 0.940f, 1.0f);
+    light.frame = ImVec4(0.995f, 0.985f, 0.985f, 1.0f);
+    light.toolbar = ImVec4(0.875f, 0.820f, 0.850f, 1.0f);
+    light.elevated = ImVec4(0.985f, 0.965f, 0.970f, 1.0f);
+    light.lightChrome = true;
+    const WorkspaceSurfaceLevels lightLevels = ResolveWorkspaceSurfaceLevels(light);
+    Check(SurfaceLuma(lightLevels.application) - SurfaceLuma(lightLevels.docked) >= 0.040f,
+          "light workspace keeps a readable recessed docked surface");
+    Check(SurfaceLuma(lightLevels.elevated) - SurfaceLuma(lightLevels.docked) >= 0.060f,
+          "light workspace keeps an elevated surface above the dock");
+    Check(SurfaceLuma(lightLevels.elevated) > SurfaceLuma(lightLevels.docked),
+          "light workspace surface order remains application, docked, elevated");
+
+    // These are the five built-in theme anchors from MakeBuiltinScheme. Keep
+    // the resolver contract table-driven so a theme can not silently regress
+    // to a nearly flat shell (or a clipped white elevated surface).
+    const WorkspaceSurfaceBasis builtInThemes[] = {
+        {
+            ImVec4(0.059f, 0.078f, 0.106f, 1.0f),
+            ImVec4(0.094f, 0.125f, 0.165f, 1.0f),
+            ImVec4(0.063f, 0.082f, 0.110f, 1.0f),
+            ImVec4(0.082f, 0.110f, 0.145f, 1.0f),
+            false,
+        }, // Classic Dark
+        {
+            ImVec4(0.078f, 0.082f, 0.086f, 1.0f),
+            ImVec4(0.094f, 0.153f, 0.224f, 1.0f),
+            ImVec4(0.043f, 0.075f, 0.122f, 1.0f),
+            ImVec4(0.063f, 0.106f, 0.161f, 1.0f),
+            false,
+        }, // Aurora
+        {
+            ImVec4(0.965f, 0.929f, 0.945f, 1.0f),
+            ImVec4(0.988f, 0.976f, 0.980f, 1.0f),
+            ImVec4(0.918f, 0.859f, 0.886f, 1.0f),
+            ImVec4(0.988f, 0.976f, 0.980f, 1.0f),
+            true,
+        }, // Soft Blush
+        {
+            ImVec4(0.055f, 0.086f, 0.129f, 1.0f),
+            ImVec4(0.082f, 0.161f, 0.267f, 1.0f),
+            ImVec4(0.082f, 0.161f, 0.267f, 1.0f),
+            ImVec4(0.075f, 0.149f, 0.247f, 1.0f),
+            false,
+        }, // Deep Navy
+        {
+            ImVec4(0.992f, 0.984f, 0.969f, 1.0f),
+            ImVec4(1.000f, 1.000f, 1.000f, 1.0f),
+            ImVec4(1.000f, 0.933f, 0.831f, 1.0f),
+            ImVec4(0.973f, 0.937f, 0.894f, 1.0f),
+            true,
+        }, // Sea Glass
+    };
+    for (const WorkspaceSurfaceBasis& builtIn : builtInThemes) {
+        const WorkspaceSurfaceLevels levels = ResolveWorkspaceSurfaceLevels(builtIn);
+        const float applicationLuma = SurfaceLuma(levels.application);
+        const float dockedLuma = SurfaceLuma(levels.docked);
+        const float elevatedLuma = SurfaceLuma(levels.elevated);
+        if (builtIn.lightChrome) {
+            Check(applicationLuma - dockedLuma >= 0.040f,
+                  "built-in light theme keeps a recessed docked shelf");
+            Check(elevatedLuma - dockedLuma >= 0.0595f,
+                  "built-in light theme keeps a readable elevated shelf");
+            Check(MaxRgb(levels.elevated) < 0.999f,
+                  "built-in light theme avoids a clipped pure-white elevated shelf");
+        } else {
+            Check(dockedLuma - applicationLuma >= 0.0335f,
+                  "built-in dark theme keeps a readable docked lift");
+            Check(elevatedLuma - dockedLuma >= 0.0275f,
+                  "built-in dark theme keeps a readable elevated lift");
+        }
+    }
+}
+
+bool SlotInside(
+    const aura::ui::workspace::ToolbarFlowSlot& inner,
+    const aura::ui::workspace::ToolbarFlowSlot& outer) {
+    return !inner.visible ||
+           (inner.minX >= outer.minX && inner.maxX <= outer.maxX && inner.maxX >= inner.minX);
+}
+
+void CheckToolbarFlowGeometry(
+    const aura::ui::workspace::ToolbarFlowLayout& layout,
+    float expectedDialGap,
+    const char* caseName) {
+    using namespace aura::ui::workspace;
+    Check(layout.valid, caseName);
+    Check(layout.presetDial.visible, "preset dial remains visible in toolbar flow");
+    Check(SlotInside(layout.navCapsule, layout.toolbarClip),
+          "navigation capsule stays inside toolbar clip");
+    Check(SlotInside(layout.presetDial, layout.toolbarClip),
+          "preset dial stays inside toolbar clip");
+    Check(layout.navCapsule.maxX + expectedDialGap <= layout.presetDial.minX,
+          "navigation capsule and preset dial keep the requested gap");
+
+    float previousMaxX = layout.navCapsule.minX;
+    for (std::size_t i = 0; i < kToolbarFlowItemCount; ++i) {
+        const ToolbarFlowSlot& item = layout.itemSlots[i];
+        Check(SlotInside(item, layout.toolbarClip),
+              "every visible toolbar action stays inside the toolbar clip");
+        Check(SlotInside(item, layout.navCapsule),
+              "every visible toolbar action stays inside the navigation capsule");
+        if (!item.visible) continue;
+        Check(item.minX >= previousMaxX,
+              "toolbar action rectangles never overlap each other");
+        Check(item.maxX <= layout.presetDial.minX,
+              "toolbar actions never overlap the preset dial");
+        previousMaxX = item.maxX;
+    }
+}
+
+void TestToolbarFlowLayoutKeepsPresetDialSeparate() {
+    using namespace aura::ui::workspace;
+
+    ToolbarFlowLayoutInput input;
+    input.toolbarMinX = 10.0f;
+    input.toolbarMaxX = 1590.0f;
+    input.navMinX = 850.0f;
+    input.navPreferredX = 865.0f;
+    input.rightInset = 10.0f;
+    input.presetDialWidth = 160.0f;
+    input.presetDialGap = 12.0f;
+    input.navLeadingInset = 3.0f;
+    input.navTrailingInset = 3.0f;
+    input.expandedItemWidths = {90.0f, 78.0f, 82.0f, 62.0f, 62.0f, 28.0f};
+    input.compactItemWidths = {30.0f, 30.0f, 30.0f, 30.0f, 30.0f, 28.0f};
+    input.itemGaps = {2.0f, 2.0f, 2.0f, 2.0f, 13.0f};
+    input.minimumVisibleItems = 4;
+
+    const ToolbarFlowLayout wide = ResolveToolbarFlowLayout(input);
+    CheckToolbarFlowGeometry(wide, input.presetDialGap,
+                             "1600 px toolbar resolves a valid navigation flow");
+    Check(!wide.compact, "1600 px toolbar preserves navigation labels");
+    Check(wide.visibleItemCount == kToolbarFlowItemCount,
+          "1600 px toolbar keeps navigation and all actions visible");
+
+    input.toolbarMaxX = 1270.0f;
+    input.navMinX = 650.0f;
+    input.navPreferredX = 700.0f;
+    const ToolbarFlowLayout standard = ResolveToolbarFlowLayout(input);
+    CheckToolbarFlowGeometry(standard, input.presetDialGap,
+                             "1280 px toolbar resolves a valid navigation flow");
+    Check(!standard.compact, "1280 px toolbar keeps navigation labels after Favorites removal");
+    Check(standard.visibleItemCount == kToolbarFlowItemCount,
+          "1280 px toolbar keeps scan, refresh, and more actions visible");
+
+    input.toolbarMinX = 0.0f;
+    input.toolbarMaxX = 600.0f;
+    input.navMinX = 280.0f;
+    input.navPreferredX = 280.0f;
+    const ToolbarFlowLayout narrow = ResolveToolbarFlowLayout(input);
+    CheckToolbarFlowGeometry(narrow, input.presetDialGap,
+                             "narrow toolbar resolves a valid navigation flow");
+    Check(narrow.compact, "narrow toolbar uses icon-only navigation");
+    Check(narrow.visibleItemCount == input.minimumVisibleItems,
+          "narrow toolbar hides secondary actions before hiding the preset dial");
+}
+
+void TestTransientScrollbarVisibilityPolicy() {
+    using namespace aura::ui::workspace;
+
+    TransientScrollbarVisibilityInput input;
+    Check(!ShouldShowTransientScrollbar(input),
+          "non-scrollable surfaces never draw a scrollbar grab");
+
+    input.scrollable = true;
+    input.secondsSinceInteraction = 0.0;
+    Check(ShouldShowTransientScrollbar(input),
+          "an eligible scrollbar appears immediately after interaction");
+
+    input.secondsSinceInteraction = kTransientScrollbarIdleSeconds + 0.01;
+    Check(!ShouldShowTransientScrollbar(input),
+          "an eligible scrollbar hides after three idle seconds");
+
+    input.hovered = true;
+    Check(ShouldShowTransientScrollbar(input),
+          "hover reveals an eligible scrollbar");
+
+    input.hovered = false;
+    input.dragging = true;
+    Check(ShouldShowTransientScrollbar(input),
+          "dragging keeps an eligible scrollbar visible");
+}
+
+void TestTransientScrollbarControllerKeepsRegionClocksIndependent() {
+    using namespace aura::ui::workspace;
+
+    TransientScrollbarController controller;
+    constexpr ImGuiID kResultsRegion = 0x1001;
+    constexpr ImGuiID kRelatedPathsRegion = 0x1002;
+    constexpr ImGuiID kWaveformNavigationRegion = 0x1003;
+
+    TransientScrollbarFrameObservation resultsFrame;
+    resultsFrame.nowSeconds = 10.0;
+    resultsFrame.anyScrollable = true;
+    resultsFrame.becameScrollable = true;
+    controller.beginFrame(kResultsRegion, resultsFrame);
+
+    Check(controller.shouldShow(kResultsRegion, 10.0, true),
+          "Results becomes visible after its own interaction");
+    Check(!controller.shouldShow(kRelatedPathsRegion, 10.0, true),
+          "Results interaction does not reveal Related Paths");
+
+    controller.reportInteraction(kRelatedPathsRegion, 11.0);
+    Check(controller.shouldShow(kResultsRegion, 12.99, true),
+          "Results keeps its original independent timeout");
+    Check(controller.shouldShow(kRelatedPathsRegion, 13.01, true),
+          "Related Paths remains visible on its newer timeout");
+    Check(!controller.shouldShow(kResultsRegion, 13.01, true),
+          "Results expires without waiting for Related Paths");
+    Check(!controller.shouldShow(kRelatedPathsRegion, 14.01, true),
+          "Related Paths expires three seconds after its own interaction");
+
+    controller.reportInteraction(kWaveformNavigationRegion, 20.0);
+    Check(controller.shouldShow(kWaveformNavigationRegion, 22.99, true),
+          "waveform navigation has its own independent timeout");
+    Check(!controller.shouldShow(kResultsRegion, 20.0, true),
+          "waveform navigation does not reveal Results");
+}
+
+void TestTransientScrollbarStyleGatePreservesRgbAndStacks() {
+    using namespace aura::ui::workspace;
+
+    ImGui::CreateContext();
+    ImGuiContext* context = ImGui::GetCurrentContext();
+    ImVec4* colors = ImGui::GetStyle().Colors;
+    const ImVec4 originalBg(0.12f, 0.13f, 0.14f, 0.25f);
+    const ImVec4 originalGrab(0.21f, 0.31f, 0.41f, 0.40f);
+    const ImVec4 originalHovered(0.22f, 0.42f, 0.62f, 0.60f);
+    const ImVec4 originalActive(0.34f, 0.54f, 0.74f, 0.80f);
+    colors[ImGuiCol_ScrollbarBg] = originalBg;
+    colors[ImGuiCol_ScrollbarGrab] = originalGrab;
+    colors[ImGuiCol_ScrollbarGrabHovered] = originalHovered;
+    colors[ImGuiCol_ScrollbarGrabActive] = originalActive;
+    const int colorsBefore = context->ColorStack.Size;
+
+    {
+        const ImVec4 semanticGrab(0.55f, 0.65f, 0.75f, 0.36f);
+        const ImVec4 semanticHovered(0.56f, 0.66f, 0.76f, 0.54f);
+        const ImVec4 semanticActive(0.20f, 0.70f, 0.80f, 0.70f);
+        const int semanticColorCount = PushTransientScrollbarColors(
+            semanticGrab, semanticHovered, semanticActive);
+        Check(semanticColorCount == 4,
+              "semantic scrollbar helper owns the transparent track and three grabs");
+        Check(SameColor(colors[ImGuiCol_ScrollbarGrab], semanticGrab),
+              "semantic scrollbar colors remain raw before a region gate");
+
+        TransientScrollbarStyleScope hidden(false);
+        Check(Near(colors[ImGuiCol_ScrollbarBg].w, 0.0f),
+              "the native scrollbar track stays transparent while hidden");
+        Check(SameRgb(colors[ImGuiCol_ScrollbarGrab], semanticGrab) &&
+                  Near(colors[ImGuiCol_ScrollbarGrab].w, 0.0f),
+              "a hidden region preserves its own semantic RGB");
+        Check(SameRgb(colors[ImGuiCol_ScrollbarGrabHovered], semanticHovered) &&
+                  Near(colors[ImGuiCol_ScrollbarGrabHovered].w, 0.0f),
+              "a hidden region gates its own hover alpha");
+        hidden.reset();
+        hidden.reset();
+        Check(SameColor(colors[ImGuiCol_ScrollbarGrab], semanticGrab),
+              "resetting a region gate restores the semantic module color");
+        ImGui::PopStyleColor(semanticColorCount);
+    }
+
+    Check(context->ColorStack.Size == colorsBefore,
+          "hidden transient scrollbar scope balances its color stack");
+    Check(SameColor(colors[ImGuiCol_ScrollbarBg], originalBg) &&
+              SameColor(colors[ImGuiCol_ScrollbarGrab], originalGrab) &&
+              SameColor(colors[ImGuiCol_ScrollbarGrabHovered], originalHovered) &&
+              SameColor(colors[ImGuiCol_ScrollbarGrabActive], originalActive),
+          "transient scrollbar scope restores the caller's theme colors");
+
+    {
+        const ImVec4 semanticGrab(0.45f, 0.55f, 0.65f, 0.36f);
+        const ImVec4 semanticHovered(0.46f, 0.56f, 0.66f, 0.54f);
+        const ImVec4 semanticActive(0.47f, 0.57f, 0.67f, 0.70f);
+        const int semanticColorCount = PushTransientScrollbarColors(
+            semanticGrab, semanticHovered, semanticActive);
+        TransientScrollbarStyleScope visible(true);
+        Check(SameColor(colors[ImGuiCol_ScrollbarGrab], semanticGrab),
+              "visible gate preserves the semantic grab alpha");
+        Check(SameColor(colors[ImGuiCol_ScrollbarGrabHovered], semanticHovered),
+              "visible gate preserves the semantic hover alpha");
+        Check(SameColor(colors[ImGuiCol_ScrollbarGrabActive], semanticActive),
+              "visible gate preserves the semantic active alpha");
+        visible.reset();
+        ImGui::PopStyleColor(semanticColorCount);
+    }
+
+    Check(context->ColorStack.Size == colorsBefore,
+          "visible transient scrollbar scope balances its color stack");
+    ImGui::DestroyContext();
+}
+
+void TestCoreStyleScopeBalancesStacks() {
+    using namespace aura::ui::workspace;
+    ImGui::CreateContext();
+    ImGuiContext* context = ImGui::GetCurrentContext();
+    const int colorsBefore = context->ColorStack.Size;
+    const int varsBefore = context->StyleVarStack.Size;
+
+    {
+        CoreWorkspaceStyleScope scope(
+            BuildTestPalette(), SurfaceLevel::Docked, AccentRole::Focused);
+        Check(scope.active(), "style scope activates when an ImGui context exists");
+        Check(context->ColorStack.Size > colorsBefore, "style scope pushes colors");
+        Check(context->StyleVarStack.Size > varsBefore, "style scope pushes metrics");
+        scope.reset();
+        scope.reset();
+        Check(!scope.active(), "style scope reset is idempotent");
+    }
+
+    Check(context->ColorStack.Size == colorsBefore, "style scope balances color stack");
+    Check(context->StyleVarStack.Size == varsBefore, "style scope balances variable stack");
+    ImGui::DestroyContext();
+}
+
+void TestModuleShellStateResolution() {
+    using namespace aura::ui::workspace;
+    const CoreWorkspacePalette palette = BuildTestPalette();
+
+    ModuleWindowShellState state;
+    state.mode = ModuleWindowMode::Docked;
+    state.activity = ModuleShellActivity::Inactive;
+    state.content = ModuleShellContentState::Ready;
+    ModuleWindowShellVisual visual = ResolveModuleWindowShellVisual(palette, state);
+    Check(visual.surface == SurfaceLevel::Docked, "docked shell uses docked surface");
+    Check(!visual.drawShadow, "docked shell has no floating shadow");
+    Check(visual.contentVisible, "ready shell exposes caller content");
+    Check(SameColor(visual.borderColor, palette.perimeter), "inactive shell uses quiet perimeter");
+
+    state.mode = ModuleWindowMode::Floating;
+    state.activity = ModuleShellActivity::Active;
+    visual = ResolveModuleWindowShellVisual(palette, state);
+    Check(visual.surface == SurfaceLevel::Elevated, "floating shell uses elevated surface");
+    Check(visual.drawShadow, "floating shell exposes one modest shadow affordance");
+    Check(SameColor(visual.borderColor, palette.functionalAccent), "active shell uses functional accent");
+
+    state.mode = ModuleWindowMode::Detached;
+    state.activity = ModuleShellActivity::Focused;
+    visual = ResolveModuleWindowShellVisual(palette, state);
+    Check(visual.surface == SurfaceLevel::Elevated, "detached shell uses elevated surface");
+    Check(visual.drawShadow, "detached shell exposes floating depth");
+    Check(SameColor(visual.borderColor, palette.functionalAccent), "focused shell uses functional accent");
+
+    for (ModuleShellContentState content : {
+             ModuleShellContentState::Empty,
+             ModuleShellContentState::Loading,
+             ModuleShellContentState::Error,
+             ModuleShellContentState::Unavailable}) {
+        state.content = content;
+        visual = ResolveModuleWindowShellVisual(palette, state);
+        Check(!visual.contentVisible, "non-ready shell owns its status presentation");
+        const ImVec4 expected = content == ModuleShellContentState::Error
+            ? palette.error
+            : palette.mutedText;
+        Check(SameColor(visual.statusColor, expected), "shell status uses semantic quiet/error color");
+    }
+}
+
+void TestModuleShellScopeBalancesBeginEndAndStyles() {
+    using namespace aura::ui::workspace;
+    ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+    io.DisplaySize = ImVec2(800.0f, 600.0f);
+    io.DeltaTime = 1.0f / 60.0f;
+    io.IniFilename = nullptr;
+    unsigned char* pixels = nullptr;
+    int width = 0;
+    int height = 0;
+    io.Fonts->GetTexDataAsRGBA32(&pixels, &width, &height);
+
+    ImGui::NewFrame();
+    ImGui::Begin("CoreWorkspaceStyleTestHost");
+    ImGuiContext* context = ImGui::GetCurrentContext();
+    const int colorsBefore = context->ColorStack.Size;
+    const int varsBefore = context->StyleVarStack.Size;
+    const int windowsBefore = context->CurrentWindowStack.Size;
+
+    ModuleWindowShellOptions options;
+    options.title = "Audition";
+    options.footerText = "Ready";
+    options.size = ImVec2(320.0f, 180.0f);
+    options.state.mode = ModuleWindowMode::Floating;
+    options.state.activity = ModuleShellActivity::Focused;
+    options.state.content = ModuleShellContentState::Ready;
+    options.showFooter = true;
+    options.resizable = true;
+    {
+        ModuleWindowShellScope shell("##CoreWorkspaceModule", BuildTestPalette(), options);
+        Check(shell.visible(), "module shell begins a visible native child");
+        Check(shell.shouldRenderContent(), "ready module shell permits content rendering");
+        ImGui::TextUnformatted("Module content");
+    }
+
+    Check(context->CurrentWindowStack.Size == windowsBefore, "module shell balances BeginChild/EndChild");
+    Check(context->ColorStack.Size == colorsBefore, "module shell balances style colors");
+    Check(context->StyleVarStack.Size == varsBefore, "module shell balances style variables");
+    ImGui::End();
+    ImGui::EndFrame();
+    ImGui::DestroyContext();
+}
+
+} // namespace
+
+int main() {
+    TestInvariantMetrics();
+    TestPaletteIsCallerSupplied();
+    TestSurfaceHierarchyResolver();
+    TestToolbarFlowLayoutKeepsPresetDialSeparate();
+    TestTransientScrollbarVisibilityPolicy();
+    TestTransientScrollbarControllerKeepsRegionClocksIndependent();
+    TestTransientScrollbarStyleGatePreservesRgbAndStacks();
+    TestCoreStyleScopeBalancesStacks();
+    TestModuleShellStateResolution();
+    TestModuleShellScopeBalancesBeginEndAndStyles();
+
+    if (g_failures == 0) {
+        std::puts("All core workspace style tests passed.");
+        return 0;
+    }
+    std::fprintf(stderr, "%d core workspace style test(s) failed.\n", g_failures);
+    return 1;
+}

@@ -1,0 +1,172 @@
+name: Package Aris update handoff
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "可选：需要整理建议的 PR 编号"
+        required: false
+        type: string
+      head_sha:
+        description: "可选：PR 的精确 head SHA；不填则使用本次 Action SHA"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+  checks: read
+  actions: write
+
+jobs:
+  package:
+    runs-on: windows-2022
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+      actions: write
+    env:
+      UPDATE_PUBLIC_KEY_B64: ${{ vars.UPDATE_PUBLIC_KEY_B64 }}
+      STABLE_UPDATE_PACKAGE_KEY_ID: ${{ vars.STABLE_UPDATE_PACKAGE_KEY_ID }}
+      ARIS_UPDATE_GITHUB_REPOSITORY: xindong/harken-search
+      ARIS_UPDATE_MIRROR_BASE_URL: https://harkensearch.xd.com/aris/
+      HARKEN_TRUSTED_SIGNER_SUBJECT: ${{ vars.HARKEN_TRUSTED_SIGNER_SUBJECT }}
+      BUILD_ID: ${{ github.sha }}
+      PR_NUMBER: ${{ inputs.pr_number }}
+      REVIEW_HEAD_SHA: ${{ inputs.head_sha }}
+    steps:
+      - name: Require main for official packages
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF -ne 'refs/heads/main') {
+            throw 'Official installer and update packages must be built from main.'
+          }
+
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.13"
+
+      - name: Configure the provisioned public release
+        shell: pwsh
+        run: |
+          $keyBytes = [Convert]::FromBase64String($env:UPDATE_PUBLIC_KEY_B64)
+          if ($keyBytes.Length -ne 32) { throw "stable public key must contain 32 bytes" }
+          $keyHex = [BitConverter]::ToString($keyBytes).Replace('-', '').ToLowerInvariant()
+          cmake -S . -B build-release -G "Visual Studio 17 2022" -A x64 `
+            -DARIS_PUBLIC_RELEASE=ON `
+            -DARIS_BOOTSTRAP_RELEASE_BUILD=ON `
+            "-DARIS_BOOTSTRAP_PACKAGE_KEY_ID=$env:STABLE_UPDATE_PACKAGE_KEY_ID" `
+            "-DARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX=$keyHex" `
+            "-DARIS_UPDATE_GITHUB_REPOSITORY=$env:ARIS_UPDATE_GITHUB_REPOSITORY" `
+            "-DARIS_UPDATE_MIRROR_BASE_URL=$env:ARIS_UPDATE_MIRROR_BASE_URL" `
+            "-DAIRS_BUILD_ID=$env:BUILD_ID" `
+            -DAIRS_RELEASE_CHANNEL=stable
+
+      - name: Build Aris and Bootstrap
+        shell: pwsh
+        run: cmake --build build-release --config Release --target HarkenSearch --parallel 4
+
+      - name: Assemble payload Bootstrap and installer handoff
+        shell: pwsh
+        run: |
+          $version = python -c "from tools.pack_engine import read_current_version; print(read_current_version())"
+          $release = Resolve-Path 'build-release/Release'
+          python -B tools/build_offline_manual.py --stage-dir "$release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/pack_engine.py --prepare-release-notes --version "$version" --release-dir "$release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/verify_release_assembly.py "$release" --source-commit "$env:BUILD_ID"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -B tools/check_release_compliance.py --release-dir "$release"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $legalSource = Join-Path $PWD 'docs/legal'
+          foreach ($legalFile in @('EULA.md', 'PRIVACY_POLICY.md', 'OPEN_SOURCE_RELEASE_NOTICE.md', 'EULA.en.md', 'PRIVACY_POLICY.en.md', 'OPEN_SOURCE_RELEASE_NOTICE.en.md')) {
+            $source = Join-Path $legalSource $legalFile
+            if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+              Write-Error "required legal document is missing: $source"
+              exit 1
+            }
+          }
+          New-Item -ItemType Directory -Force handoff/payload, handoff/bootstrap, handoff/installer | Out-Null
+          $legalDestination = Join-Path $PWD 'handoff/payload/docs/legal'
+          New-Item -ItemType Directory -Force $legalDestination | Out-Null
+          foreach ($legalFile in @('EULA.md', 'PRIVACY_POLICY.md', 'OPEN_SOURCE_RELEASE_NOTICE.md', 'EULA.en.md', 'PRIVACY_POLICY.en.md', 'OPEN_SOURCE_RELEASE_NOTICE.en.md')) {
+            $source = Join-Path $legalSource $legalFile
+            Copy-Item -LiteralPath $source -Destination (Join-Path $legalDestination $legalFile) -Force
+            if (-not (Test-Path -LiteralPath (Join-Path $legalDestination $legalFile) -PathType Leaf)) {
+              Write-Error "required legal document was not copied: $legalFile"
+              exit 1
+            }
+          }
+          Get-ChildItem $release -File | Where-Object {
+            $_.Name -ne 'HarkenSearchBootstrap.exe' -and
+            ($_.Extension -in @('.exe', '.dll', '.sig', '.png', '.ttf', '.otf', '.json', '.lottie', '.md') -or
+             $_.Name -eq 'LICENSE' -or
+             $_.Name -eq 'third-party-sbom.cdx.json')
+          } | Copy-Item -Destination handoff/payload
+          foreach ($directory in @('assets', 'icons', 'models', 'LICENSES', 'docs')) {
+            $source = Join-Path $release $directory
+            if (Test-Path $source) { Copy-Item $source -Destination handoff/payload -Recurse -Force }
+          }
+          Copy-Item (Join-Path $release 'HarkenSearchBootstrap.exe') handoff/bootstrap/HarkenSearchBootstrap.exe
+          $signTool = Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin\10.0.22621.0\x64\signtool.exe'
+          if (-not (Test-Path -LiteralPath $signTool -PathType Leaf)) {
+            $signTool = Get-ChildItem -LiteralPath (Join-Path ${env:ProgramFiles(x86)} 'Windows Kits\10\bin') -Filter signtool.exe -Recurse -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $signTool) { throw 'Windows SDK signtool.exe was not found; the release installer cannot verify legacy uninstallers' }
+          $signer = $env:HARKEN_TRUSTED_SIGNER_SUBJECT
+          if (-not $signer) { throw 'HARKEN_TRUSTED_SIGNER_SUBJECT is not set; the release installer cannot name its trusted signer' }
+          $env:ARIS_RELEASE_VERSION = $version
+          $env:ARIS_RELEASE_DIR = $release
+          $env:ARIS_SIGN_TOOL = $signTool
+          $env:ARIS_SIGNER_SUBJECT = $signer
+          $installer = python -c "import os; from tools.pack_engine import compile_installer; print(compile_installer(os.environ['ARIS_RELEASE_VERSION'], os.environ['ARIS_RELEASE_DIR'], sign_tool_path=os.environ['ARIS_SIGN_TOOL'], trusted_signer_subject=os.environ['ARIS_SIGNER_SUBJECT']))"
+          Copy-Item $installer ("handoff/installer/HarkenSearch-{0}-win-x64-setup.exe" -f $version)
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aris-update-payload
+          path: handoff/payload
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aris-bootstrap
+          path: handoff/bootstrap/HarkenSearchBootstrap.exe
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: aris-installer
+          path: handoff/installer/HarkenSearch-*-win-x64-setup.exe
+          if-no-files-found: error
+
+      - name: 整理 GitHub PR 建议
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          New-Item -ItemType Directory -Force handoff/review-feedback | Out-Null
+          $prArgs = @()
+          if ($env:PR_NUMBER) {
+            $prArgs += @('--pr-number', $env:PR_NUMBER)
+          }
+          if ($env:REVIEW_HEAD_SHA) {
+            $prArgs += @('--head-sha', $env:REVIEW_HEAD_SHA)
+          }
+          python tools/review_feedback_collector.py `
+            --repository "${{ github.repository }}" `
+            --output-json handoff/review-feedback/review-feedback.json `
+            --output-markdown handoff/review-feedback/review-feedback.md `
+            @prArgs
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: review-feedback
+          path: handoff/review-feedback
+          if-no-files-found: error

@@ -1,0 +1,5 @@
+pytest==8.4.2
+PyYAML==6.0.3
+cryptography==46.0.3
+playwright==1.60.0
+-r tools/requirements-manual.txt

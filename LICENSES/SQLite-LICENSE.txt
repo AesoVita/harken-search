@@ -1,0 +1,13 @@
+SQLite — Public Domain
+https://www.sqlite.org/
+
+SQLite is in the public domain and does not require a license.
+
+The author disclaims copyright to the source code. In place of a legal notice,
+here is a blessing:
+
+    May you do good and not evil.
+    May you find forgiveness for yourself and forgive others.
+    May you share freely, never taking more than you give.
+
+For more information, see https://www.sqlite.org/copyright.html
