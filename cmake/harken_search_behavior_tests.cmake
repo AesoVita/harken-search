@@ -802,6 +802,8 @@ aura_set_test_labels(TestTrigramE2E db)
 
 add_executable(TestBrowserSearch EXCLUDE_FROM_ALL
     tests/test_browser_search.cpp
+    src/PathUtils.cpp
+    tests/playlist_folder_tree_path_conversion_stub.cpp
 )
 if(MSVC)
     target_compile_options(TestBrowserSearch PRIVATE /W3 /utf-8)
