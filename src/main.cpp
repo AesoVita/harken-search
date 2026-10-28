@@ -46057,14 +46057,15 @@ void RenderUI(AppState& state) {
         }
 
         // Content area
-        const float kInfoContentVerticalInset = 8.0f;
+        const float kInfoContentTopInset = 13.0f;
+        const float kInfoContentBottomInset = 8.0f;
         const float rightContentWidth = rightShell.shellWidth - rightShell.innerPad * 2.0f;
         ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad,
-            rightShell.insetT + rightShell.titleHeight + kInfoContentVerticalInset));
+            rightShell.insetT + rightShell.titleHeight + kInfoContentTopInset));
         BeginTransientScrollbarChild(
             "FileInfoContent",
             ImVec2(rightContentWidth, std::max(1.0f, rightShellHeight - rightShell.titleHeight -
-                rightShell.insetT - rightShell.insetB - kInfoContentVerticalInset * 2.0f)),
+                rightShell.insetT - rightShell.insetB - kInfoContentTopInset - kInfoContentBottomInset)),
             false,
             ImGuiWindowFlags_NoScrollbar);
         DevTools_BeginFramePhase("RenderUI.FileInfoPanel");

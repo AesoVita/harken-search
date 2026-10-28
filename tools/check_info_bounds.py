@@ -14,7 +14,7 @@ def violations(report):
         checks = {
             'left inset': content['x'] >= outer['x'] + 8,
             'right inset': content['x'] + content['w'] <= outer['x'] + outer['w'] - 8,
-            'title gap': content['y'] >= outer['y'] + 4 + 24 + 8,
+            'title gap': content['y'] >= outer['y'] + 4 + 24 + 13,
             'bottom inset': content['y'] + content['h'] <= outer['y'] + outer['h'] - 4 - 8,
             'artwork fits': artwork['y'] + artwork['h'] <= content['y'] + content['h'],
             'footer stays inside': content['scroll_max_y'] == 0,
