@@ -1127,6 +1127,61 @@ int testGlobalCoverWallPageFollowsCurrentFileListOrder() {
     return failures;
 }
 
+int testFolderCoverFacetsKeepDistinctSimilarArtworks() {
+    printSeparator("Test: folder cover wall keeps distinct similar artwork files");
+    const std::string dbPath = "test_folder_cover_distinct_similar.db";
+    removeDbFamily(dbPath);
+    Database db;
+    if (!db.open(dbPath)) return 1;
+
+    const std::string firstKey = "F|H|0000000000000001|100";
+    const std::string secondKey = "F|H|0000000000000002|100";
+    auto add = [&](const std::string& name, const std::string& folder, const std::string& key) {
+        AudioRecord record;
+        record.filePath = folder + "/" + name;
+        record.fileName = name;
+        record.folderPath = HarkenSearch::CanonicalFolderPath(folder);
+        record.extension = ".wav";
+        record.format = "WAV";
+        record.hasCover = true;
+        record.folderCoverKey = key;
+        return db.addFile(record);
+    };
+    const bool seeded =
+        add("one.wav", "C:/library/media/Album_01", firstKey) &&
+        add("two.wav", "C:/library/media/Album_01", firstKey) &&
+        add("three.wav", "C:/library/media/Album_02", secondKey) &&
+        sqlite3_exec(db.db(), R"SQL(
+            INSERT OR REPLACE INTO cover_cache_registry
+                (cover_key, rep_path, is_embedded, normalized_key, cover_phash)
+            VALUES
+                ('F|H|0000000000000001|100', 'c:\library\media\album_01', 0,
+                 'F|H|0000000000000001|100', 12345),
+                ('F|H|0000000000000002|100', 'c:\library\media\album_02', 0,
+                 'F|H|0000000000000002|100', 12345);
+        )SQL", nullptr, nullptr, nullptr) == SQLITE_OK;
+    SearchFilter parent;
+    parent.folderPath = HarkenSearch::CanonicalFolderPath("C:/library/media");
+    SearchFilter album;
+    album.folderPath = HarkenSearch::CanonicalFolderPath("C:/library/media/Album_01");
+    const auto parentFiles = db.searchFiles(parent, 10, 0);
+    const auto parentCovers = db.getCoverFacets(parent, 10);
+    const auto cachedParentCovers = db.getCoverFacets(parent, 10);
+    const auto albumFiles = db.searchFiles(album, 10, 0);
+    const auto albumCovers = db.getCoverFacets(album, 10);
+    const bool ok = seeded && parentFiles.size() == 3 && parentCovers.size() == 2 &&
+                    cachedParentCovers.size() == 2 &&
+                    albumFiles.size() == 2 && albumCovers.size() == 1;
+    std::cout << (ok ? "PASS" : "FAIL")
+              << ": parent files=" << parentFiles.size()
+              << " covers=" << parentCovers.size()
+              << "; album files=" << albumFiles.size()
+              << " covers=" << albumCovers.size() << "\n";
+    db.close();
+    removeDbFamily(dbPath);
+    return ok ? 0 : 1;
+}
+
 int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
     printSeparator("Test: large cover wall follows file list and continues after 50000 rows");
 
@@ -5200,6 +5255,9 @@ int main(int argc, char* argv[]) {
             focusedFailures += testSmallCoverWallSameFilenamePageCursorDoesNotSkipOrRepeat();
             return focusedFailures == 0 ? 0 : 1;
         }
+        if (focused == "folder_cover_distinct_similar") {
+            return testFolderCoverFacetsKeepDistinctSimilarArtworks();
+        }
         if (focused == "cover_wall_page_cursor") {
             return testGlobalCoverWallPageApiUsesStableCursor() == 0 ? 0 : 1;
         }
@@ -5221,6 +5279,7 @@ int main(int argc, char* argv[]) {
     int coverWallFileListOrderFailures = testGlobalCoverWallPageFollowsCurrentFileListOrder();
     coverWallFileListOrderFailures += testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows();
     int sameFilenameCoverWallPageFailures = testSmallCoverWallSameFilenamePageCursorDoesNotSkipOrRepeat();
+    int folderCoverDistinctFailures = testFolderCoverFacetsKeepDistinctSimilarArtworks();
     int largeCoverFacetFailures = testLargeCoverFacetsUseIncrementalRegistryOnly();
     int largeCoverHotPathFailures = testLargeCoverBrowseHotPathsUseBoundedRegistryHeuristic();
     int searchCountFallbackFailures = testSearchFilesCountMirrorsFtsFallbackContract();
@@ -5271,7 +5330,7 @@ int main(int argc, char* argv[]) {
         coverWallPageFailures == 0 && coverWallSparsePageFailures == 0 &&
         smallCoverWallPageFailures == 0 &&
         coverWallFileListOrderFailures == 0 &&
-        sameFilenameCoverWallPageFailures == 0 &&
+        sameFilenameCoverWallPageFailures == 0 && folderCoverDistinctFailures == 0 &&
         largeCoverFacetFailures == 0 && largeCoverHotPathFailures == 0 &&
         searchCountFallbackFailures == 0 &&
         zeroFilteredCountCacheFailures == 0 &&
@@ -5322,6 +5381,7 @@ int main(int argc, char* argv[]) {
     std::cerr << "CoverWallPageSmallFallback: " << smallCoverWallPageFailures << " assertion(s) failed.\n";
     std::cerr << "CoverWallPageFileListOrder: " << coverWallFileListOrderFailures << " assertion(s) failed.\n";
     std::cerr << "CoverWallPageSameFilenameCursor: " << sameFilenameCoverWallPageFailures << " assertion(s) failed.\n";
+    std::cerr << "FolderCoverDistinctSimilar: " << folderCoverDistinctFailures << " assertion(s) failed.\n";
     std::cerr << "LargeCoverFacetIncremental: " << largeCoverFacetFailures << " assertion(s) failed.\n";
     std::cerr << "LargeCoverHotPathBoundedness: " << largeCoverHotPathFailures << " assertion(s) failed.\n";
     std::cerr << "SearchCountFtsFallback: " << searchCountFallbackFailures << " assertion(s) failed.\n";

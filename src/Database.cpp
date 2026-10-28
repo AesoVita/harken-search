@@ -707,7 +707,8 @@ struct CoverFacetCluster {
 static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
     const std::vector<CoverFacetCandidate>& candidates,
     int limit,
-    bool sortByCount);
+    bool sortByCount,
+    bool mergeSimilarPhashes = true);
 static std::vector<std::string> ResolveEquivalentCoverKeys(Database* db, const std::string& coverKey);
 static std::string CanonicalizeCoverLookupKey(const std::string& coverKey);
 static bool EnsureCoverTileMembershipForKeys(sqlite3* db,
@@ -8399,18 +8400,26 @@ static bool CoverCandidateMatchesCluster(const CoverFacetCandidate& candidate,
 static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
     const std::vector<CoverFacetCandidate>& candidates,
     int limit,
-    bool sortByCount) {
+    bool sortByCount,
+    bool mergeSimilarPhashes) {
     std::vector<CoverFacetCluster> clusters;
     clusters.reserve(candidates.size());
+    std::unordered_map<std::string, size_t> exactKeyIndex;
+    if (!mergeSimilarPhashes) exactKeyIndex.reserve(candidates.size());
 
     for (const auto& candidate : candidates) {
         if (candidate.key.empty() || candidate.path.empty()) continue;
 
         CoverFacetCluster* target = nullptr;
-        for (auto& cluster : clusters) {
-            if (CoverCandidateMatchesCluster(candidate, cluster)) {
-                target = &cluster;
-                break;
+        if (!mergeSimilarPhashes) {
+            const auto found = exactKeyIndex.find(candidate.key);
+            if (found != exactKeyIndex.end()) target = &clusters[found->second];
+        } else {
+            for (auto& cluster : clusters) {
+                if (CoverCandidateMatchesCluster(candidate, cluster)) {
+                    target = &cluster;
+                    break;
+                }
             }
         }
 
@@ -8420,6 +8429,7 @@ static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
             cluster.totalCount = candidate.count;
             cluster.keys.push_back(candidate.key);
             if (candidate.phash != 0) cluster.phashes.push_back(candidate.phash);
+            if (!mergeSimilarPhashes) exactKeyIndex.emplace(candidate.key, clusters.size());
             clusters.push_back(std::move(cluster));
             continue;
         }
@@ -18574,7 +18584,8 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
                     filter.category.empty() &&
                     filter.specificCoverKey.empty();
 
-    const std::string persistentCacheKey = BuildPersistentFacetCacheKey(filter, limit, "cover_cluster_v5");
+    const std::string persistentCacheKey = BuildPersistentFacetCacheKey(
+        filter, limit, filter.folderPath.empty() ? "cover_cluster_v5" : "cover_folder_distinct_v1");
     bool registrySparse = false;
     auto buildRegistryFacetResults = [&](int candidateLimit) {
         return BuildCoverFacetEntriesFromCandidates(
@@ -18680,7 +18691,9 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
                 }
                 sqlite3_finalize(stmt);
 
-                auto clustered = ClusterCoverCandidates(raw, limit, true);
+                // A selected path shows each distinct cover key, even when
+                // different artwork files happen to look nearly identical.
+                auto clustered = ClusterCoverCandidates(raw, limit, true, false);
                 results.reserve(clustered.size());
                 for (const auto& c : clustered) {
                     CoverFacetEntry e;
@@ -18786,7 +18799,9 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
     }
     sqlite3_finalize(stmt);
 
-    auto clustered = ClusterCoverCandidates(raw, limit, true);
+    // Keep visual grouping for non-path searches; a selected path keeps
+    // distinct artwork keys while still collapsing repeated use of one key.
+    auto clustered = ClusterCoverCandidates(raw, limit, true, filter.folderPath.empty());
     results.reserve(clustered.size());
     for (const auto& c : clustered) {
         CoverFacetEntry e;
