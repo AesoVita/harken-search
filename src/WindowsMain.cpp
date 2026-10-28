@@ -4494,7 +4494,20 @@ static void PollQaCommandFile(AppState& state) {
                         ",\"y\":"+std::to_string(z.minY)+",\"w\":"+std::to_string(z.maxX-z.minX)+
                         ",\"h\":"+std::to_string(z.maxY-z.minY)+"}";
                 }
-                result+="}}";
+                result+="},\"layout_windows\":[";
+                bool firstWindow = true;
+                for (const auto* window : ImGui::GetCurrentContext()->Windows) {
+                    const std::string name = window->Name;
+                    if (!window->WasActive || (name.find("RightDockColumn") == std::string::npos &&
+                        name.find("FloatingFileInfo") == std::string::npos)) continue;
+                    if (!firstWindow) result+=",";
+                    firstWindow = false;
+                    result+="{\"name\":\""+jsonEscape(name)+"\",\"x\":"+std::to_string(window->Pos.x)+
+                        ",\"y\":"+std::to_string(window->Pos.y)+",\"w\":"+std::to_string(window->Size.x)+
+                        ",\"h\":"+std::to_string(window->Size.y)+",\"scroll_max_y\":"+std::to_string(window->ScrollMax.y)+
+                        ",\"clip_bottom\":"+std::to_string(window->ClipRect.Max.y)+"}";
+                }
+                result+="]}";
             }
         }
 #endif

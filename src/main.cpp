@@ -46020,11 +46020,14 @@ void RenderUI(AppState& state) {
         ImVec2 winPos = ImGui::GetWindowPos();
         const auto& tcs = ThemeColors::current();
         const ImVec4 infoPanelBg = ThemeColors::infoPanelDockBG(tcs);
-        const float rightShellHeight = rightRegionSplit ? rightColumnChildHeight : availHeight;
+        // The column budget may have reduced the requested panel size.
+        // Both the shell and its contents must use the final child bounds.
+        const ImVec2 rightShellSize = ImGui::GetWindowSize();
+        const float rightShellHeight = rightShellSize.y;
         const DockModuleShellLayout rightShell = drawDockModuleShell(
             dl,
             winPos,
-            infoShellWidth,
+            rightShellSize.x,
             rightShellHeight,
             L(View_InfoPanel),
             infoPanelBg,
@@ -46054,11 +46057,14 @@ void RenderUI(AppState& state) {
         }
 
         // Content area
+        const float kInfoContentVerticalInset = 8.0f;
         const float rightContentWidth = rightShell.shellWidth - rightShell.innerPad * 2.0f;
-        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad, rightShell.insetT + rightShell.titleHeight + 4.0f));
+        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad,
+            rightShell.insetT + rightShell.titleHeight + kInfoContentVerticalInset));
         BeginTransientScrollbarChild(
             "FileInfoContent",
-            ImVec2(rightContentWidth, rightShellHeight - rightShell.titleHeight - rightShell.insetT - rightShell.insetB - 6.0f),
+            ImVec2(rightContentWidth, std::max(1.0f, rightShellHeight - rightShell.titleHeight -
+                rightShell.insetT - rightShell.insetB - kInfoContentVerticalInset * 2.0f)),
             false,
             ImGuiWindowFlags_NoScrollbar);
         DevTools_BeginFramePhase("RenderUI.FileInfoPanel");
