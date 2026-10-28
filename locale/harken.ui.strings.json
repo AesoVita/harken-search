@@ -8990,13 +8990,6 @@
       "ja": "更新センター"
     },
     {
-      "id": "Main_MenuUpdateChangelog",
-      "type": "ui",
-      "zh": "更新日志",
-      "en": "Changelog",
-      "ja": "更新ログ"
-    },
-    {
       "id": "Main_NavBackFmt",
       "type": "ui",
       "zh": "Back: %s",

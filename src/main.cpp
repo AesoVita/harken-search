@@ -37912,10 +37912,6 @@ void RenderUI(AppState& state) {
             if (ImGui::MenuItem(L(Main_MenuUpdateCenter))) {
                 state.showUpdateCenter = true;
             }
-            if (ImGui::MenuItem(L(Main_MenuUpdateChangelog))) {
-                LoadReleaseNotesFromExeDir(true);
-                g_releaseNotesUiState.wantOpen = true;
-            }
             const bool feedbackUiEnabled = CueviFeedback::IsUiEntryEnabled(BuildCueviFeedbackConfig());
             if (feedbackUiEnabled) {
             ImGui::Separator();
