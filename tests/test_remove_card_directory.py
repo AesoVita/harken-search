@@ -29,7 +29,8 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         git(seed, "config", "user.name", "CI")
         git(seed, "config", "user.email", "ci@example.invalid")
         (seed / "tracked.txt").write_text("first\n", encoding="utf-8")
-        git(seed, "add", "tracked.txt")
+        (seed / ".gitignore").write_text("*.local\nbuild/\n", encoding="utf-8")
+        git(seed, "add", "tracked.txt", ".gitignore")
         git(seed, "commit", "-m", "first")
         git(seed, "push", "origin", "HEAD:" + REF)
         self.card = self.root / "card-one"
@@ -42,9 +43,13 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         actual_git = cleanup.git
 
         def local_fetch(repo, *args):
-            if repo == self.card and args[:3] == ("fetch", "--no-tags", "origin"):
-                return actual_git(repo, "fetch", "--no-tags", str(self.origin), *args[3:])
+            if args and args[0] == "fetch":
+                if repo.samefile(self.card) and args[:3] == ("fetch", "--no-tags", "origin"):
+                    return actual_git(repo, "fetch", "--no-tags", str(self.origin), *args[3:])
+                raise AssertionError("unexpected fetch outside the isolated bare repository")
             return actual_git(repo, *args)
+
+        self.local_fetch = local_fetch
 
         fetch_patch = patch.object(cleanup, "git", side_effect=local_fetch)
         fetch_patch.start()
@@ -79,12 +84,88 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         git(self.card, "stash", "push", "--include-untracked", "-m", "saved")
         self.refused("--dry-run")
 
+    def test_ignored_database_from_git_info_exclude_blocks_dry_run_and_execute(self):
+        (self.card / ".git/info/exclude").write_text("*.db\n", encoding="utf-8")
+        database = self.card / "private.db"
+        database.write_text("private", encoding="utf-8")
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all"), "")
+        self.assertIn("private.db", git(self.card, "ls-files", "--others", "--ignored", "--exclude-standard"))
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertTrue(database.exists())
+
+    def test_ignored_local_file_from_gitignore_blocks_dry_run_and_execute(self):
+        local_file = self.card / "settings.local"
+        local_file.write_text("local", encoding="utf-8")
+        build = self.card / "build"
+        build.mkdir()
+        (build / "artifact.bin").write_bytes(b"test output")
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all"), "")
+        self.assertIn("settings.local", git(self.card, "ls-files", "--others", "--ignored", "--exclude-standard"))
+        self.assertIn("build/artifact.bin", git(self.card, "ls-files", "--others", "--ignored", "--exclude-standard"))
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertTrue(local_file.exists())
+
+    def test_ignored_file_added_after_dry_run_blocks_execute(self):
+        head = git(self.card, "rev-parse", "HEAD")
+        self.assertEqual(cleanup.main(self.args("--dry-run")), 0)
+        database = self.card / "settings.local"
+        database.write_text("new after preflight", encoding="utf-8")
+        self.refused("--execute", "--expected-head", head)
+        self.assertTrue(database.exists())
+
+    def test_ignored_file_added_after_commit_check_blocks_delete(self):
+        head = git(self.card, "rev-parse", "HEAD")
+        original_assert_no_links = cleanup.assert_no_links
+        checks = 0
+
+        def add_ignored_file_at_second_link_check(root):
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                (root / "late.local").write_text("new before delete", encoding="utf-8")
+            return original_assert_no_links(root)
+
+        with patch.object(cleanup, "assert_no_links", side_effect=add_ignored_file_at_second_link_check):
+            self.refused("--execute", "--expected-head", head)
+        self.assertTrue((self.card / "late.local").exists())
+
     def test_hidden_branch_with_unique_commit_is_preserved(self):
         git(self.card, "switch", "-c", "backup/unfinished")
         (self.card / "tracked.txt").write_text("new\n", encoding="utf-8")
         git(self.card, "commit", "-am", "unfinished")
         git(self.card, "switch", REF)
         self.refused("--dry-run")
+
+    def test_tag_with_unique_commit_is_preserved(self):
+        git(self.card, "switch", "-c", "backup/tagged")
+        (self.card / "tracked.txt").write_text("tagged only\n", encoding="utf-8")
+        git(self.card, "commit", "-am", "tagged only")
+        git(self.card, "tag", "saved-work")
+        git(self.card, "switch", REF)
+        git(self.card, "branch", "-D", "backup/tagged")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertEqual(git(self.card, "tag", "-l", "saved-work"), "saved-work")
+
+    def test_non_commit_tag_is_preserved_when_commit_proof_is_impossible(self):
+        blob = git(self.card, "hash-object", "tracked.txt")
+        git(self.card, "tag", "saved-blob", blob)
+        self.refused("--dry-run")
+        self.assertEqual(git(self.card, "tag", "-l", "saved-blob"), "saved-blob")
+
+    def test_fetch_fixture_matches_equivalent_path_without_network(self):
+        alias = self.card / ".." / self.card.name
+        self.assertNotEqual(alias, self.card)
+        self.assertTrue(alias.samefile(self.card))
+        result = self.local_fetch(alias, "fetch", "--no-tags", "origin", "+refs/heads/" + REF + ":refs/remotes/origin/" + REF)
+        self.assertEqual(result.returncode, 0)
+        with self.assertRaisesRegex(AssertionError, "unexpected fetch"):
+            self.local_fetch(self.main_repo, "fetch", "--no-tags", "origin", "+refs/heads/" + REF + ":refs/remotes/origin/" + REF)
 
     def test_current_head_with_unique_commit_is_preserved(self):
         (self.card / "tracked.txt").write_text("not merged", encoding="utf-8")

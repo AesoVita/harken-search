@@ -123,12 +123,16 @@ def assert_origin(root: Path, repository: str) -> None:
         refuse("origin 不是指定的 GitHub 仓库")
 
 
+def assert_no_local_content(root: Path) -> None:
+    if git_output(root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
+        refuse("目录还有未保存或被 Git 忽略的文件")
+
+
 def assert_merged_and_clean(root: Path, repository: str, integration_ref: str) -> str:
     if not (root / ".git").is_dir() or Path(git_output(root, "rev-parse", "--show-toplevel")).resolve(strict=True) != root:
         refuse("目标不是独立的卡目录仓库")
     assert_origin(root, repository)
-    if git_output(root, "status", "--porcelain=v1", "--untracked-files=all"):
-        refuse("目录还有未保存的改动")
+    assert_no_local_content(root)
     if git_output(root, "stash", "list", "--format=%gd"):
         refuse("目录还有 stash")
     remote_ref = "refs/remotes/origin/" + integration_ref
@@ -138,10 +142,10 @@ def assert_merged_and_clean(root: Path, repository: str, integration_ref: str) -
     if not COMMIT_ID.fullmatch(qa_head):
         refuse("无法核验集成分支提交")
     head = git_output(root, "rev-parse", "--verify", "HEAD^{commit}")
-    branches = git_output(root, "for-each-ref", "--format=%(refname)", "refs/heads")
-    for ref in ("HEAD", *branches.splitlines()):
-        if git(root, "merge-base", "--is-ancestor", ref, qa_head).returncode:
-            refuse("HEAD 或本地分支有尚未进入最新集成分支的提交：" + ref)
+    saved_refs = git_output(root, "for-each-ref", "--format=%(refname)", "refs/heads", "refs/tags")
+    for ref in ("HEAD", *saved_refs.splitlines()):
+        if git(root, "merge-base", "--is-ancestor", ref + "^{commit}", qa_head).returncode:
+            refuse("HEAD、本地分支或标签无法证明已进入最新集成分支：" + ref)
     return head
 
 
@@ -169,6 +173,7 @@ def target_lock(workspace_root: Path, card_name: str):
 
 def delete_tree(root: Path) -> None:
     assert_no_links(root)
+    assert_no_local_content(root)
     for current, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
         for name in filenames:
             path = Path(current) / name
