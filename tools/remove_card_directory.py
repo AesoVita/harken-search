@@ -124,14 +124,25 @@ def assert_origin(root: Path, repository: str) -> None:
 
 
 def assert_no_local_content(root: Path) -> None:
+    indexed = git_output(root, "ls-files", "-v", "-z")
+    if any(entry and (entry[0] == "S" or entry[0].islower()) for entry in indexed.split("\0")):
+        refuse("索引含 assume-unchanged 或 skip-worktree 标记；无法证明文件未修改")
     if git_output(root, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"):
         refuse("目录还有未保存或被 Git 忽略的文件")
+
+
+def assert_no_linked_worktrees(root: Path) -> None:
+    worktrees = [line.removeprefix("worktree ") for line in git_output(root, "worktree", "list", "--porcelain").splitlines()
+                 if line.startswith("worktree ")]
+    if len(worktrees) != 1 or Path(worktrees[0]).resolve(strict=True) != root:
+        refuse("目录关联其他 Git worktree；请先单独核验并保留其工作和提交")
 
 
 def assert_merged_and_clean(root: Path, repository: str, integration_ref: str) -> str:
     if not (root / ".git").is_dir() or Path(git_output(root, "rev-parse", "--show-toplevel")).resolve(strict=True) != root:
         refuse("目标不是独立的卡目录仓库")
     assert_origin(root, repository)
+    assert_no_linked_worktrees(root)
     assert_no_local_content(root)
     if git_output(root, "stash", "list", "--format=%gd"):
         refuse("目录还有 stash")
@@ -168,11 +179,13 @@ def target_lock(workspace_root: Path, card_name: str):
             if lock.read_text(encoding="ascii") == token:
                 lock.unlink()
         except FileNotFoundError:
+            # The lock is already absent, so there is nothing left to release.
             pass
 
 
 def delete_tree(root: Path) -> None:
     assert_no_links(root)
+    assert_no_linked_worktrees(root)
     assert_no_local_content(root)
     for current, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
         for name in filenames:
