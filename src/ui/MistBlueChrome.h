@@ -2,8 +2,8 @@
 #include "Theme.h"
 #include "imgui.h"
 namespace MistBlueChrome {
-// Applied only to the built-in LapisBlue preset. Keep the dark icon accent
-// separate from the light surfaces carrying dark text.
+// Applied only to the built-in LapisBlue preset. Keep the light icon accent
+// separate from the navy surfaces carrying light text.
 inline void Apply(ImVec4* colors,const ThemeColorScheme& s) {
     colors[ImGuiCol_ButtonActive]=s.historyCapsuleActiveBG;
     colors[ImGuiCol_TabActive]=s.resultsTabActive;

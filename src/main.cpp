@@ -34067,7 +34067,7 @@ void RenderUI(AppState& state) {
                 const ThemeSwatch kThemeSwatches[] = {
                     { AppTheme::Dark,      L(Set_ThemeDark),      0xff0f141b, 0xff6f98c1, true  },
                     { AppTheme::RoseCedar, L(Set_ThemeRoseCedar), 0xfffdf3f6, 0xffe8b4c8, true  },
-                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xffafc9df, 0xff29445d, true  },
+                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xff34485f, 0xfff1f5fa, true  },
                     { AppTheme::Ocean,     L(Set_ThemeOcean),     0xff141516, 0xff38a8be, false },
                     { AppTheme::JadeMist,  L(Set_ThemeJadeMist),  0xfffdfbf7, 0xff246e68, false },
                 };
@@ -39856,7 +39856,9 @@ void RenderUI(AppState& state) {
         rightRegionSplit ? infoLeafWidth : rightPanelWidth,
         rightRegionSplit ? infoLeafHeight : availHeight};
 
-    const ImU32 kTitleText = ImGui::GetColorU32(ThemeColors::peerPanelHeading(ThemeColors::current()));
+    const ImU32 kTitleText = ImGui::GetColorU32(state.settings.theme == AppTheme::LapisBlue
+        ? ThemeColors::current().interfaceText
+        : ThemeColors::peerPanelHeading(ThemeColors::current()));
     constexpr float kFilterInfoShellRadius =
         aura::ui::workspace::kCoreWorkspaceMetrics.compactControlRadius;
 
