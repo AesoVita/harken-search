@@ -2,6 +2,20 @@
   "schema_version": 1,
   "entries": [
     {
+      "id": "Info_VisiblePages",
+      "type": "ui",
+      "zh": "显示的入口",
+      "en": "Visible pages",
+      "ja": "表示するページ"
+    },
+    {
+      "id": "Info_KeepOnePage",
+      "type": "ui",
+      "zh": "至少保留一个可见入口",
+      "en": "Keep at least one page visible",
+      "ja": "少なくとも1つのページを表示してください"
+    },
+    {
       "id": "Db_PreviewPathRejected",
       "type": "ui",
       "zh": "当前是隔离测试包，只能打开测试目录内的数据库。日常使用请安装正常版本。",

@@ -1,4 +1,5 @@
 #pragma once
+#include "InfoPageNavigation.h"
 // SoundManager - 应用状态模块
 // AppState.h - 应用状态、设置、标签页结构
 // 注意：这是权威定义，main.cpp 中不再重复定义这些类型
@@ -984,6 +985,7 @@ struct AppSettings {
     SidebarSize sidebarSize = SidebarSize::Regular;
     
     // File info panel field visibility
+    InfoPageNavigation infoPages;
     bool infoShowAudioType = true;
     bool infoShowBitDepth = true;
     bool infoShowChannels = true;

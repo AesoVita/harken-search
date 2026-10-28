@@ -40,7 +40,14 @@ void RenderFileInfoFieldVisibilityMenu(AppState& state);
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
-    const FileInfoPanelChrome& chrome,
-    ImGuiTabItemFlags artworkFlags);
+    const FileInfoPanelChrome& chrome);
+float FileInfoPageActionsWidth(AppState& state, float availableWidth);
+void RenderFileInfoPageActions(AppState& state, ImVec2 position, float height, float availableWidth);
 void RenderFileInfoPanelContent(AppState& state, float panelWidth);
 int PushFileInfoShellStyle(const ThemeColorScheme& tcs);
+
+inline void FinishFileInfoArtworkFooter(ImVec2 stripPos, float stripHeight) {
+    ImGui::SetCursorScreenPos(ImVec2(stripPos.x, stripPos.y + stripHeight));
+    // Without a tab bar, this footer must reserve its own trailing space.
+    ImGui::Dummy(ImVec2(0.0f, 0.0f));
+}
