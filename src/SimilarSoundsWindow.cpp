@@ -8,6 +8,7 @@
 #include "SimilarityQueryService.h"
 #include "Theme.h"
 #include "UIRenderer.h"
+#include "ui/TransportContrast.h"
 
 #include <algorithm>
 #include <cmath>
@@ -16,6 +17,21 @@
 #include <utility>
 
 namespace aura::ui {
+
+namespace {
+constexpr float kContentPadding = 12.0f;
+constexpr float kItemGap = 8.0f;
+
+ImVec4 SimilarSecondaryText(const AppState& state) {
+    const auto& theme = ThemeColors::current();
+    if (state.settings.theme == AppTheme::Custom ||
+        state.settings.useCustomColors || ThemeColors::customized()) {
+        return theme.resultsSecondaryText;
+    }
+    return TransportContrast::ForSurface(
+        theme.resultsSecondaryText, theme.metadataPanelBG, 6.0);
+}
+}
 
 static std::optional<HarkenSearch::SimilarityReference> ResolveCurrentSimilarityReference(AppState& state) {
     auto fromRecord = [](const AudioRecord& record)
@@ -53,26 +69,35 @@ static bool DrawSimilarSoundsActionRow(
     const char* actionLabel = indexing ? L(Similar_Indexing)
         : (searching ? L(Similar_Searching) : L(Similar_Find));
     const ThemeColorScheme& theme = ThemeColors::current();
-    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+    const bool sharedPanelStyle = state.settings.theme != AppTheme::Custom &&
         !state.settings.useCustomColors && !ThemeColors::customized();
     bool searchRequested = false;
 
-    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, theme.dialogBG);
-    if (ImGui::BeginChild("##SimilarActionRow", ImVec2(0.0f, 62.0f), false,
+    const float frameHeight = ImGui::GetFrameHeight();
+    const float actionWidth = ImGui::CalcTextSize(actionLabel).x + 20.0f;
+    constexpr float comboWidth = 132.0f;
+    const float minimumSingleRowWidth = ImGui::CalcTextSize(L(Similar_CurrentAudio)).x +
+        120.0f + comboWidth + actionWidth + ImGui::GetStyle().ItemSpacing.x * 3.0f;
+    const bool stacked = sharedPanelStyle && ImGui::GetContentRegionAvail().x < minimumSingleRowWidth;
+    const float actionHeight = sharedPanelStyle
+        ? frameHeight * (stacked ? 2.0f : 1.0f) + (stacked ? kItemGap : 0.0f)
+        : 62.0f;
+    if (sharedPanelStyle) ImGui::PushStyleColor(ImGuiCol_ChildBg, theme.metadataPanelBG);
+    if (ImGui::BeginChild("##SimilarActionRow", ImVec2(0.0f, actionHeight), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const ImGuiStyle& style = ImGui::GetStyle();
+        const float rowX = ImGui::GetCursorPosX();
         const float rowY = ImGui::GetCursorPosY();
-        ImGui::SetCursorPosY(rowY + (62.0f - ImGui::GetFrameHeight()) * 0.5f);
-        ImGui::PushStyleColor(ImGuiCol_Text, theme.resultsSecondaryText);
+        if (sharedPanelStyle) ImGui::AlignTextToFramePadding();
+        else ImGui::SetCursorPosY(rowY + (62.0f - frameHeight) * 0.5f);
+        ImGui::PushStyleColor(ImGuiCol_Text, SimilarSecondaryText(state));
         ImGui::TextUnformatted(L(Similar_CurrentAudio));
         ImGui::PopStyleColor();
         ImGui::SameLine();
 
-        constexpr float comboWidth = 132.0f;
-        const float buttonWidth = ImGui::CalcTextSize(actionLabel).x + 20.0f;
-        const float fileWidth = std::max(80.0f,
-            ImGui::GetContentRegionAvail().x - comboWidth - buttonWidth -
-            style.ItemSpacing.x * 2.0f);
+        const float fileWidth = stacked ? ImGui::GetContentRegionAvail().x :
+            std::max(80.0f, ImGui::GetContentRegionAvail().x - comboWidth - actionWidth -
+                style.ItemSpacing.x * 2.0f);
         const ImVec2 textMin = ImGui::GetCursorScreenPos();
         ImGui::InvisibleButton("##SimilarCurrentFile", ImVec2(fileWidth, ImGui::GetFrameHeight()));
         const ImVec2 textMax(textMin.x + fileWidth, textMin.y + ImGui::GetFrameHeight());
@@ -84,10 +109,12 @@ static bool DrawSimilarSoundsActionRow(
             currentName = snapshot.reference.displayName.c_str();
         }
         ImVec2 currentNameSize = ImGui::CalcTextSize(currentName);
-        ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), textMin, textMax,
+        const ImVec2 labelMin(textMin.x, textMin.y + (sharedPanelStyle ? style.FramePadding.y : 0.0f));
+        ImGui::RenderTextEllipsis(ImGui::GetWindowDrawList(), labelMin, textMax,
             textMax.x, currentName, nullptr, &currentNameSize);
 
-        ImGui::SameLine();
+        if (stacked) ImGui::SetCursorPos(ImVec2(rowX, rowY + frameHeight + kItemGap));
+        else ImGui::SameLine();
         const char* presetLabels[] = {
             L(Similar_PresetBalanced), L(Similar_PresetTimbre),
             L(Similar_PresetRhythm), L(Similar_PresetPitch),
@@ -104,7 +131,8 @@ static bool DrawSimilarSoundsActionRow(
         options.variant = aura::ui::ButtonVariant::PrimarySearch;
         options.disabled = searching || indexing || !hasReference;
         if (searching || indexing) {
-            ImGui::PushStyleColor(ImGuiCol_Text, theme.resultsSecondaryText);
+            if (sharedPanelStyle) ImGui::AlignTextToFramePadding();
+            ImGui::PushStyleColor(ImGuiCol_Text, SimilarSecondaryText(state));
             ImGui::TextUnformatted(actionLabel);
             ImGui::PopStyleColor();
         } else {
@@ -125,7 +153,7 @@ static bool DrawSimilarSoundsActionRow(
         }
     }
     ImGui::EndChild();
-    if (layeredNavy) ImGui::PopStyleColor();
+    if (sharedPanelStyle) ImGui::PopStyleColor();
     return searchRequested;
 }
 
@@ -176,15 +204,26 @@ static void DrawSimilarSoundsResultsTable(
     const HarkenSearch::SimilarityWorkflowSnapshot& snapshot,
     bool windowFocused) {
     const ThemeColorScheme& theme = ThemeColors::current();
-    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+    const bool sharedPanelStyle = state.settings.theme != AppTheme::Custom &&
         !state.settings.useCustomColors && !ThemeColors::customized();
-    const ImVec4 tableBody = layeredNavy ? theme.dialogPanelBG : theme.resultsBG;
-    ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, layeredNavy ? theme.toolbarBG : theme.resultsHeaderBG);
+    const ImVec4 infoSurface = theme.metadataPanelBG;
+    const ImVec4 tableBody = sharedPanelStyle ? infoSurface : theme.resultsBG;
+    ImGui::PushStyleColor(ImGuiCol_TableHeaderBg,
+        sharedPanelStyle ? ImLerp(infoSurface, theme.toolbarBG, 0.14f) : theme.resultsHeaderBG);
     ImGui::PushStyleColor(ImGuiCol_TableRowBg, tableBody);
     ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt,
-        ImLerp(tableBody, layeredNavy ? theme.resultsBG : theme.resultsHeaderBG, 0.32f));
-    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, tableBody);
-    const ImGuiTableFlags flags = ImGuiTableFlags_BordersOuter |
+        ImLerp(tableBody, sharedPanelStyle ? theme.resultsBG : theme.resultsHeaderBG, 0.32f));
+    if (sharedPanelStyle) {
+        ImVec4 edge = ThemeColors::infoPanelDockEdge(theme);
+        edge.w = 0.45f;
+        ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, edge);
+        edge.w = 0.18f;
+        ImGui::PushStyleColor(ImGuiCol_TableBorderLight, edge);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, tableBody);
+        ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(kItemGap, 6.0f));
+        ImGui::PushStyleVar(ImGuiStyleVar_SelectableTextAlign, ImVec2(0.0f, 0.5f));
+    }
+    const ImGuiTableFlags flags = (sharedPanelStyle ? ImGuiTableFlags_None : ImGuiTableFlags_BordersOuter) |
         ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
     const float similarRowHeight = std::max(
@@ -195,11 +234,14 @@ static void DrawSimilarSoundsResultsTable(
         ImGui::TableSetupColumn(L(Similar_ColumnWaveform),
             ImGuiTableColumnFlags_WidthStretch, 1.8f);
         ImGui::TableSetupColumn(L(Similar_ColumnDuration),
-            ImGuiTableColumnFlags_WidthFixed, 84.0f);
+            ImGuiTableColumnFlags_WidthFixed,
+            sharedPanelStyle ? ImGui::CalcTextSize("00:00:00.00").x : 84.0f);
         ImGui::TableSetupColumn(L(Similar_ColumnFormat),
-            ImGuiTableColumnFlags_WidthFixed, 76.0f);
+            ImGuiTableColumnFlags_WidthFixed, sharedPanelStyle ? std::max(
+                ImGui::CalcTextSize(L(Similar_ColumnFormat)).x, ImGui::CalcTextSize("FLAC").x) : 76.0f);
         ImGui::TableSetupColumn(L(Similar_ColumnScore),
-            ImGuiTableColumnFlags_WidthFixed, 88.0f);
+            ImGuiTableColumnFlags_WidthFixed, sharedPanelStyle ? std::max(
+                ImGui::CalcTextSize(L(Similar_ColumnScore)).x, ImGui::CalcTextSize("100%").x) : 88.0f);
         const LStr headers[] = {
             LStr::Similar_ColumnFileName, LStr::Similar_ColumnWaveform,
             LStr::Similar_ColumnDuration, LStr::Similar_ColumnFormat,
@@ -218,7 +260,7 @@ static void DrawSimilarSoundsResultsTable(
                 snapshot, state.batchFeatureExtracting.load())) {
             ImGui::TableNextRow();
             ImGui::TableSetColumnIndex(0);
-            ImGui::PushStyleColor(ImGuiCol_Text, theme.resultsSecondaryText);
+            ImGui::PushStyleColor(ImGuiCol_Text, SimilarSecondaryText(state));
             ImGui::TextUnformatted(message);
             ImGui::PopStyleColor();
         }
@@ -311,11 +353,18 @@ static void DrawSimilarSoundsResultsTable(
                     state.audioEngine.seekToPosition(seekPos);
                 }
             }
+            const auto alignRowText = [&]() {
+                if (sharedPanelStyle) ImGui::SetCursorPosY(ImGui::GetCursorPosY() +
+                    std::max(0.0f, (similarRowHeight - ImGui::GetTextLineHeight()) * 0.5f));
+            };
             ImGui::TableSetColumnIndex(2);
+            alignRowText();
             ImGui::TextUnformatted(FormatTime(row.durationSeconds).c_str());
             ImGui::TableSetColumnIndex(3);
+            alignRowText();
             ImGui::TextUnformatted(row.format.empty() ? "-" : row.format.c_str());
             ImGui::TableSetColumnIndex(4);
+            alignRowText();
             const int score = static_cast<int>(
                 std::clamp(row.similarity, 0.0f, 1.0f) * 100.0f + 0.5f);
             ImGui::Text("%d%%", score);
@@ -337,7 +386,10 @@ static void DrawSimilarSoundsResultsTable(
             ToggleSimilarSoundsAudition(state, row);
         }
     }
-    if (layeredNavy) ImGui::PopStyleColor();
+    if (sharedPanelStyle) {
+        ImGui::PopStyleVar(2);
+        ImGui::PopStyleColor(3);
+    }
     ImGui::PopStyleColor(3);
 }
 
@@ -353,8 +405,8 @@ void OpenSimilarSoundsWindow(AppState& state) {
     state.panelSimilarSounds.visible = true;
     state.panelSimilarSounds.floating = true;
     state.panelSimilarSounds.wasDragging = false;
-    if (state.panelSimilarSounds.floatW < 220.0f) state.panelSimilarSounds.floatW = 720.0f;
-    if (state.panelSimilarSounds.floatH < 180.0f) state.panelSimilarSounds.floatH = 360.0f;
+    state.panelSimilarSounds.floatW = std::max(state.panelSimilarSounds.floatW, 640.0f);
+    if (state.panelSimilarSounds.floatH < 180.0f) state.panelSimilarSounds.floatH = 560.0f;
     if (state.panelSimilarSounds.floatX < 80.0f) state.panelSimilarSounds.floatX = 420.0f;
     if (state.panelSimilarSounds.floatY < 40.0f) state.panelSimilarSounds.floatY = 120.0f;
     state.similarSoundsWindow.restorePos = ImVec2(state.panelSimilarSounds.floatX, state.panelSimilarSounds.floatY);
@@ -373,22 +425,32 @@ void InvalidateSimilarSoundsWindow(AppState& state) {
 static void DrawSimilarSoundsBody(AppState& state, bool windowFocused) {
     HarkenSearch::SimilarityWorkflow& workflow = *state.similarSoundsWorkflow;
     HarkenSearch::SimilarityWorkflowSnapshot snapshot = workflow.Snapshot();
-    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+    const bool sharedPanelStyle = state.settings.theme != AppTheme::Custom &&
         !state.settings.useCustomColors && !ThemeColors::customized();
-    if (layeredNavy) {
-        // The dock host can be light even while this module uses navy children.
-        // Paint one continuous module surface behind their spacing and separators.
-        const ImVec2 min = ImGui::GetCursorScreenPos();
-        const ImVec2 max(min.x + ImGui::GetContentRegionAvail().x,
-            ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - ImGui::GetStyle().WindowPadding.y);
-        ImGui::GetWindowDrawList()->AddRectFilled(min, max,
-            ImGui::GetColorU32(ThemeColors::current().metadataPanelBG));
+    if (sharedPanelStyle) {
+        // The host owns the single perimeter. Inset the content inside it,
+        // so controls and the scrollable table never sit on that line.
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
+            ImVec2(kContentPadding, kContentPadding));
+        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(kItemGap, kItemGap));
+        ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().metadataPanelBG);
+        ImGui::PushStyleColor(ImGuiCol_Text, ThemeColors::current().metadataPanelText);
+        if (!ImGui::BeginChild("##SimilarContent", ImVec2(0.0f, 0.0f),
+                ImGuiChildFlags_AlwaysUseWindowPadding,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            ImGui::EndChild();
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar(3);
+            return;
+        }
     }
     if (DrawSimilarSoundsActionRow(state, workflow, snapshot)) {
         snapshot = workflow.Snapshot();
     }
-    if (layeredNavy) {
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().dialogPanelBG);
+    if (sharedPanelStyle) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg,
+            ThemeColors::current().metadataPanelBG);
         if (ImGui::BeginChild("##SimilarIndexRegion", ImVec2(0.0f, 0.0f),
                 ImGuiChildFlags_AutoResizeY,
                 ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
@@ -401,21 +463,36 @@ static void DrawSimilarSoundsBody(AppState& state, bool windowFocused) {
     }
     // Starting analysis invalidates rows, even if the task finishes this frame.
     snapshot = workflow.Snapshot();
-    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().toolbarBG);
-    if (ImGui::BeginChild("##SimilarResultsHeading", ImVec2(0.0f, 36.0f), false,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
-        const float rowY = ImGui::GetCursorPosY();
-        ImGui::SetCursorPosY(rowY + (36.0f - ImGui::GetTextLineHeight()) * 0.5f);
+    bool headingVisible = true;
+    if (sharedPanelStyle) {
+        ImVec4 divider = ThemeColors::infoPanelDockEdge(ThemeColors::current());
+        divider.w = 0.32f;
+        ImGui::PushStyleColor(ImGuiCol_Separator, divider);
+        ImGui::Separator();
+        ImGui::PopStyleColor();
+    } else {
+        headingVisible = ImGui::BeginChild("##SimilarResultsHeading", ImVec2(0.0f, 36.0f), false,
+            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    }
+    if (headingVisible) {
+        if (!sharedPanelStyle) {
+            const float rowY = ImGui::GetCursorPosY();
+            ImGui::SetCursorPosY(rowY + (36.0f - ImGui::GetTextLineHeight()) * 0.5f);
+        }
         ImGui::TextUnformatted(L(Similar_Results));
         ImGui::SameLine();
         ImGui::PushStyleColor(
-            ImGuiCol_Text, ThemeColors::current().resultsSecondaryText);
+            ImGuiCol_Text, SimilarSecondaryText(state));
         ImGui::Text("%d", static_cast<int>(snapshot.rows.size()));
         ImGui::PopStyleColor();
     }
-    ImGui::EndChild();
-    if (layeredNavy) ImGui::PopStyleColor();
+    if (!sharedPanelStyle) ImGui::EndChild();
     DrawSimilarSoundsResultsTable(state, snapshot, windowFocused);
+    if (sharedPanelStyle) {
+        ImGui::EndChild();
+        ImGui::PopStyleColor(2);
+        ImGui::PopStyleVar(3);
+    }
 }
 
 static void PollSimilarSoundsWorkflow(AppState& state) {

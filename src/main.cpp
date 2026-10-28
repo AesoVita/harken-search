@@ -26269,6 +26269,11 @@ static bool FloatDockedPanel(
     const bool floated = aura::ui::dock::BeginDockPanelFloat(
         g_dockLayout, moduleId, panel, committedLeafRect);
     if (!floated) return false;
+    if (std::strcmp(moduleId, "similar-sounds") == 0) {
+        // A full-height dock leaf is too narrow for the five-column results table.
+        panel.floatW = (std::max)(panel.floatW, 640.0f);
+        panel.floatH = (std::min)(panel.floatH, 620.0f);
+    }
     ++g_dockGeometryRevision;
     panel.wasDragging = false;
     return true;
@@ -29061,6 +29066,8 @@ void StartBatchFeatureExtraction(AppState& state) {
 }
 
 void DrawSimilarityIndexPanel(AppState& state) {
+    const bool sharedSimilarStyle = state.settings.theme != AppTheme::Custom &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
     // Counting indexed files scans the feature table: keep the existing 2s
     // cadence, but never reuse another database's counts or query during a switch.
     static int cachedIndexed = 0;
@@ -29085,7 +29092,7 @@ void DrawSimilarityIndexPanel(AppState& state) {
         lastCountTime = now;
     }
 
-    ImGui::Separator();
+    if (!sharedSimilarStyle) ImGui::Separator();
     ImGui::BeginDisabled(state.dbSwitchInProgress);
     ImGui::Text(L(Main_IndexedProgressFmt), cachedIndexed, cachedTotal);
     ThemeInspector::RegisterLastItem("similar.index.count");
@@ -29097,21 +29104,22 @@ void DrawSimilarityIndexPanel(AppState& state) {
         snprintf(progressLabel, sizeof(progressLabel), "%d / %d", progress, total);
         DrawUnifiedProgressBar(fraction, ImVec2(-1, 18), progressLabel, true);
         ThemeInspector::RegisterLastItem("similar.index.progress");
-        const bool layeredNavySimilar = state.settings.theme == AppTheme::LapisBlue &&
-            !state.settings.useCustomColors && !ThemeColors::customized();
-        if (layeredNavySimilar) {
+        if (sharedSimilarStyle) {
             const auto& colors = ThemeColors::current();
             ImGui::PushStyleColor(ImGuiCol_Button, colors.toolbarBG);
-            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.modeCapsuleActiveBG);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                ImLerp(colors.toolbarBG, colors.metadataPanelText, 0.10f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                ImLerp(colors.toolbarBG, colors.metadataPanelText, 0.14f));
             ImGui::PushStyleColor(ImGuiCol_Border, colors.chromeBorder);
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
         }
         if (ImGui::Button(L(Cancel), ImVec2(-1, 30))) {
             state.batchFeatureCancelRequested.store(true);
         }
-        if (layeredNavySimilar) {
+        if (sharedSimilarStyle) {
             ImGui::PopStyleVar();
-            ImGui::PopStyleColor(3);
+            ImGui::PopStyleColor(4);
         }
         ThemeInspector::RegisterLastItem("similar.index.cancel");
     } else {
@@ -29128,12 +29136,14 @@ void DrawSimilarityIndexPanel(AppState& state) {
         } else if (cachedTotal > 0 && state.batchFeatureCompletionNotice.load() &&
                    !state.batchFeatureCancelRequested.load()) {
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.0f), L(Main_IndexAllDone));
+            const ImVec4 success(0.3f, 0.9f, 0.3f, 1.0f);
+            ImGui::TextColored(sharedSimilarStyle ? TransportContrast::ForSurface(
+                success, ThemeColors::current().metadataPanelBG, 6.0) : success, L(Main_IndexAllDone));
             ThemeInspector::RegisterLastItem("similar.index.done");
         }
     }
     ImGui::EndDisabled();
-    ImGui::Separator();
+    if (!sharedSimilarStyle) ImGui::Separator();
 }
 
 void RenderUI(AppState& state) {
@@ -40264,22 +40274,33 @@ void RenderUI(AppState& state) {
         // Keep the native title's move/close hit targets, but render one shell
         // using the filter's existing chrome instead of nesting a second shell.
         const DockModuleShellLayout shell;
+        const bool infoFamily = state.settings.theme != AppTheme::Custom &&
+            !state.settings.useCustomColors && !ThemeColors::customized() &&
+            (std::strcmp(moduleId, "info") == 0 ||
+             std::strcmp(moduleId, "similar-sounds") == 0);
+        const ImVec4 floatingTitleSurface = infoFamily
+            ? uiWithAlpha(workspaceDockTitleSurface, 1.0f) : workspaceDockTitleSurface;
+        const ImVec4 floatingTitleInk = infoFamily
+            ? TransportContrast::ForSurface(ImGui::ColorConvertU32ToFloat4(kTitleText),
+                floatingTitleSurface, 4.7)
+            : ImGui::ColorConvertU32ToFloat4(kTitleText);
         ImFont* emph = GetUIFontEmphasis();
         if (emph) ImGui::PushFont(emph);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
             ImVec2(8.0f, (std::max)(0.0f, (shell.titleHeight - ImGui::GetFontSize()) * 0.5f)));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.0f, 0.5f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-            ImVec2(shell.insetL + shell.innerPad, shell.innerPad));
+            infoFamily ? ImVec2(8.0f, 8.0f) : ImVec2(shell.insetL + shell.innerPad, shell.innerPad));
         // Draw the one rounded perimeter below. Native viewport decorations
         // otherwise force their perimeter to square even with WindowRounding.
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg,
-            uiWithAlpha(ThemeColors::current().filterBrowserBG, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_Text, kTitleText);
+            infoFamily ? ThemeColors::infoPanelDockBG(ThemeColors::current())
+                       : uiWithAlpha(ThemeColors::current().filterBrowserBG, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_Text, floatingTitleInk);
         ImGui::PushStyleColor(ImGuiCol_BorderShadow, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
         ImGuiWindowFlags floatFlags = ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse;
@@ -40309,10 +40330,13 @@ void RenderUI(AppState& state) {
 #endif
             ImDrawList* shellDrawList = ImGui::GetWindowDrawList();
             shellDrawList->PushClipRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), false);
+            const ImVec4 floatingEdge = infoFamily
+                ? ThemeColors::infoPanelDockEdge(ThemeColors::current())
+                : workspacePalette.perimeter;
             shellDrawList->AddRect(
                 ImVec2(pos.x + 0.5f, pos.y + 0.5f),
                 ImVec2(pos.x + size.x - 0.5f, pos.y + size.y - 0.5f),
-                ImGui::GetColorU32(workspacePalette.perimeter),
+                ImGui::GetColorU32(floatingEdge),
                 kFilterInfoShellRadius, ImDrawFlags_RoundCornersAll,
                 aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
             shellDrawList->AddLine(
@@ -51400,7 +51424,20 @@ void RenderUI(AppState& state) {
                 }
                 ImGui::EndPopup();
             }
+            const ImVec2 similarContentMin = ImGui::GetCursorScreenPos();
+            const ImVec2 similarContentSize = ImGui::GetContentRegionAvail();
             aura::ui::RenderSimilarSoundsContent(state);
+            if (state.settings.theme != AppTheme::Custom &&
+                !state.settings.useCustomColors && !ThemeColors::customized()) {
+                ImDrawList* similarDl = ImGui::GetWindowDrawList();
+                similarDl->AddRect(
+                    similarContentMin,
+                    ImVec2(similarContentMin.x + similarContentSize.x,
+                           similarContentMin.y + similarContentSize.y),
+                    ImGui::GetColorU32(ThemeColors::infoPanelDockEdge(ThemeColors::current())),
+                    kFilterInfoShellRadius, ImDrawFlags_RoundCornersAll,
+                    aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
+            }
         }
         if (!similarOpen) {
             state.panelSimilarSounds.visible = false;
@@ -51580,10 +51617,10 @@ void RenderUI(AppState& state) {
                     dockFlags)) {
                 ImDrawList* similarDl = ImGui::GetWindowDrawList();
                 const auto& similarTheme = ThemeColors::current();
-                const bool navySimilar = state.settings.theme == AppTheme::LapisBlue &&
+                const bool sharedSimilarStyle = state.settings.theme != AppTheme::Custom &&
                     !state.settings.useCustomColors && !ThemeColors::customized();
                 const ImVec4 similarBody = uiWithAlpha(
-                    navySimilar ? similarTheme.metadataPanelBG : similarTheme.filterBrowserBG, 1.0f);
+                    sharedSimilarStyle ? similarTheme.metadataPanelBG : similarTheme.filterBrowserBG, 1.0f);
                 const DockModuleShellLayout similarShell = drawDockModuleShell(
                     similarDl,
                     ImGui::GetWindowPos(),
@@ -51619,7 +51656,7 @@ void RenderUI(AppState& state) {
                     }
                     ImGui::EndPopup();
                 }
-                const float similarContentInset = navySimilar ? 4.0f : 0.0f;
+                const float similarContentInset = sharedSimilarStyle ? 4.0f : 0.0f;
                 ImGui::SetCursorPos(ImVec2(
                     similarShell.insetL + similarShell.innerPad + similarContentInset,
                     similarShell.insetT + similarShell.titleHeight + 4.0f + similarContentInset));
@@ -51640,7 +51677,7 @@ void RenderUI(AppState& state) {
                     aura::ui::RenderSimilarSoundsContent(state);
                 }
                 ImGui::EndChild();
-                if (navySimilar) {
+                if (sharedSimilarStyle) {
                     similarDl->AddRect(
                         similarContentMin,
                         ImVec2(similarContentMin.x + similarContentWidth,
