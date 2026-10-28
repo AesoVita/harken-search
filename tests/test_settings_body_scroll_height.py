@@ -5,7 +5,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MAIN = (ROOT / "src" / "main.cpp").read_text(encoding="utf-8")
 HEADER = ROOT / "src" / "SettingsBodyScrollHeight.h"
 CMAKE = (ROOT / "CMakeLists.txt").read_text(encoding="utf-8")
-GATES = (ROOT / ".github" / "workflows" / "inner-source-gates.yml").read_text(encoding="utf-8")
+PUBLIC_CHECKS = ROOT / ".github" / "workflows" / "public-checks.yml"
+PUBLIC_CHECK_RUNNER = ROOT / "tools" / "run_public_checks.py"
 CPP_TEST = ROOT / "tests" / "test_settings_body_scroll_height.cpp"
 
 
@@ -32,8 +33,16 @@ class SettingsBodyScrollHeightSourceContractTests(unittest.TestCase):
         self.assertIn("SettingsBodyScrollHeightSourceContract", CMAKE)
         self.assertIn("tests/test_settings_body_scroll_height.py", CMAKE)
 
-    def test_source_contract_runs_in_ci(self) -> None:
-        self.assertIn("python -m unittest tests.test_settings_body_scroll_height", GATES)
+    def test_source_contract_runs_on_public_pull_requests(self) -> None:
+        self.assertTrue(PUBLIC_CHECKS.is_file())
+        workflow = PUBLIC_CHECKS.read_text(encoding="utf-8")
+        self.assertIn("pull_request:", workflow)
+        self.assertIn("python tools/run_public_checks.py", workflow)
+        self.assertTrue(PUBLIC_CHECK_RUNNER.is_file())
+        self.assertIn(
+            '"tests/test_settings_body_scroll_height.py"',
+            PUBLIC_CHECK_RUNNER.read_text(encoding="utf-8"),
+        )
 
     def test_qa_push_runs_regression(self) -> None:
         workflow = ROOT / ".github" / "workflows" / "settings-scroll-regression.yml"
