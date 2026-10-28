@@ -282,6 +282,7 @@ def run(args):
                         not_covered=['music mode', 'popups', 'hover/drag', 'waveform footer', 'pitch wheel', 'active library scan'])
         source_root = Path(__file__).resolve().parents[1]
         source_paths = ['src/main.cpp', 'src/WindowsMain.cpp', 'src/ui/TransportContrast.h',
+                        'src/BuiltinThemeScheme.cpp', 'src/ui/MistBlueChrome.h',
                         'src/ui/TransportVisualAudit.h', 'src/ui/TransportBlendSlider.h', 'src/ui/TransportValueText.h',
                         'tools/qa_transport_themes.py']
         identity['source_sha256'] = {p: hashlib.sha256((source_root / p).read_bytes()).hexdigest() for p in source_paths}

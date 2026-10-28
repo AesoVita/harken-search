@@ -101,6 +101,7 @@
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
 #include "ui/TransportContrast.h"
+#include "ui/MistBlueChrome.h"
 #include "ui/EmptyStatePalette.h"
 #include "ui/EmptyStateVisualAudit.h"
 #include "ui/TransportBlendSlider.h"
@@ -20741,6 +20742,7 @@ void ApplyTheme(AppTheme theme) {
         ThemeColors::current() = MakeBuiltinScheme(theme);
         ThemeColors::deactivateCustomTheme();
         ThemeColors::applyToImGui();
+        if (theme == AppTheme::LapisBlue) MistBlueChrome::Apply(colors, ThemeColors::current());
         ThemeColors::markPendingUiChromeResync();
         SyncLegacyColorsFromTheme();
         return;
@@ -34065,7 +34067,7 @@ void RenderUI(AppState& state) {
                 const ThemeSwatch kThemeSwatches[] = {
                     { AppTheme::Dark,      L(Set_ThemeDark),      0xff0f141b, 0xff6f98c1, true  },
                     { AppTheme::RoseCedar, L(Set_ThemeRoseCedar), 0xfffdf3f6, 0xffe8b4c8, true  },
-                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xff0e1621, 0xffd7e4f1, true  },
+                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xffafc9df, 0xff29445d, true  },
                     { AppTheme::Ocean,     L(Set_ThemeOcean),     0xff141516, 0xff38a8be, false },
                     { AppTheme::JadeMist,  L(Set_ThemeJadeMist),  0xfffdfbf7, 0xff246e68, false },
                 };
@@ -40588,7 +40590,8 @@ void RenderUI(AppState& state) {
         ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 0.0f);
         const bool useLightResultsTabs =
             (resultsTheme.resultsTabActive.x + resultsTheme.resultsTabActive.y + resultsTheme.resultsTabActive.z) > 1.80f;
-        const ImVec4 kListTabText = useLightResultsTabs
+        const ImVec4 kListTabText = state.settings.theme == AppTheme::LapisBlue
+            ? MistBlueChrome::ResultsTabText(resultsTheme) : useLightResultsTabs
             ? uiWithAlpha(uiMix(resultsTheme.resultsText, resultsTheme.chromeBorder, 0.18f), 0.995f)
             : uiWithAlpha(uiMix(resultsTheme.resultsText, resultsTheme.resultsSelection, 0.12f), 0.96f);
         ImGui::PushStyleColor(ImGuiCol_Text, kListTabText);

@@ -70,7 +70,7 @@ def run(args):
         source_root=Path(__file__).resolve().parents[1]
         identity['worktree_dirty']=bool(subprocess.check_output(['git','status','--porcelain','--untracked-files=no'],cwd=source_root,text=True).strip())
         identity['source_sha256']={p:hashlib.sha256((source_root/p).read_bytes()).hexdigest() for p in
-            ('src/main.cpp','src/WindowsMain.cpp','src/ui/EmptyStatePalette.h','src/ui/EmptyStateVisualAudit.h','tools/qa_empty_state_themes.py')}
+            ('src/main.cpp','src/WindowsMain.cpp','src/BuiltinThemeScheme.cpp','src/ui/MistBlueChrome.h','src/ui/EmptyStatePalette.h','src/ui/EmptyStateVisualAudit.h','tools/qa_empty_state_themes.py')}
         for theme, name in THEMES:
             driver.command({'cmd': 'set_theme', 'theme': theme})
             snap = fresh(driver, theme)
