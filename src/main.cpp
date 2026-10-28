@@ -31096,18 +31096,20 @@ void RenderUI(AppState& state) {
         ImGui::OpenPopup(L(Dlg_ScanFolder));
         state.showScanDialog = false;
     }
-    ThemeDialogStyleScope scanDialogSurfaceStyle;
+    const bool layeredNavyDialog = state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized();
+    ThemeDialogStyleScope scanDialogSurfaceStyle(layeredNavyDialog);
     const ThemeColorScheme& scanTheme = ThemeColors::current();
-    const ImVec4 scanDialogBg = uiWithAlpha(scanTheme.dialogBG, 0.995f);
-    const ImVec4 scanDialogPanelBg = uiWithAlpha(uiMix(scanTheme.dialogPanelBG, scanTheme.frameBgBase, 0.10f), 1.0f);
+    const auto scanControls = MistBlueChrome::Controls(scanTheme);
+    const ImVec4 scanDialogBg = layeredNavyDialog ? scanTheme.dialogBG : uiWithAlpha(scanTheme.dialogBG, 0.995f);
+    const ImVec4 scanDialogPanelBg = layeredNavyDialog ? scanTheme.dialogPanelBG : uiWithAlpha(uiMix(scanTheme.dialogPanelBG, scanTheme.frameBgBase, 0.10f), 1.0f);
     const ImVec4 scanDialogBorder = uiWithAlpha(uiMix(scanTheme.chromeBorder, scanDialogPanelBg, 0.30f), 0.62f);
     const ImVec4 scanDialogAccent = uiWithAlpha(uiMix(scanTheme.controlAccent, scanTheme.interfaceText, 0.18f), 1.0f);
     const ImVec4 scanDialogAccentSoft = uiWithAlpha(uiMix(scanDialogAccent, scanDialogPanelBg, 0.52f), 1.0f);
-    const ImVec4 scanDialogText = uiWithAlpha(scanTheme.interfaceText, 0.96f);
-    const ImVec4 scanDialogMutedText = uiWithAlpha(uiMix(scanTheme.interfaceText, scanDialogPanelBg, 0.42f), 0.88f);
-    const ImVec4 scanDialogButtonBg = uiWithAlpha(uiMix(scanTheme.frameBgBase, scanDialogPanelBg, 0.18f), 0.96f);
-    const ImVec4 scanDialogButtonHover = uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.10f), 1.0f);
-    const ImVec4 scanDialogButtonActive = uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.18f), 1.0f);
+    const ImVec4 scanDialogText = layeredNavyDialog ? scanTheme.interfaceText : uiWithAlpha(scanTheme.interfaceText, 0.96f);
+    const ImVec4 scanDialogMutedText = layeredNavyDialog ? scanControls.muted : uiWithAlpha(uiMix(scanTheme.interfaceText, scanDialogPanelBg, 0.42f), 0.88f);
+    const ImVec4 scanDialogButtonBg = layeredNavyDialog ? scanControls.normal : uiWithAlpha(uiMix(scanTheme.frameBgBase, scanDialogPanelBg, 0.18f), 0.96f);
+    const ImVec4 scanDialogButtonHover = layeredNavyDialog ? scanControls.hovered : uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.10f), 1.0f);
+    const ImVec4 scanDialogButtonActive = layeredNavyDialog ? scanControls.active : uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.18f), 1.0f);
     ImGui::PushStyleColor(ImGuiCol_PopupBg, scanDialogBg);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, scanDialogBg);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, scanDialogPanelBg);
@@ -33011,7 +33013,7 @@ void RenderUI(AppState& state) {
         state.showNewDbDialog = false;
     }
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Always);
-    ThemeDialogStyleScope newDbDialogSurfaceStyle;
+    ThemeDialogStyleScope newDbDialogSurfaceStyle(state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized());
     if (BeginTransientScrollbarPopupModal(L(Dlg_NewDB), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         { ReadingTextScope _readingPopup;  // dialog body is a reading surface
         static char newDbNameBuf[128] = "Harken Search";
@@ -33612,7 +33614,7 @@ void RenderUI(AppState& state) {
         std::clamp(state.settings.settingsDialogHeight, settingsMinSize.y, settingsMaxSize.y));
     ImGui::SetNextWindowSize(settingsOpenSize, ImGuiCond_Appearing);
     ImGui::SetNextWindowSizeConstraints(settingsMinSize, settingsMaxSize);
-    ThemeDialogStyleScope settingsDialogSurfaceStyle;
+    ThemeDialogStyleScope settingsDialogSurfaceStyle(state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized());
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ThemeColors::current().dialogBG);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ThemeColors::current().dialogBG);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().dialogPanelBG);
@@ -38721,14 +38723,15 @@ void RenderUI(AppState& state) {
                 (ThemeColors::current().modeCapsuleBG.x +
                  ThemeColors::current().modeCapsuleBG.y +
                  ThemeColors::current().modeCapsuleBG.z) > 2.10f;
+            const bool layeredNavyNav = state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized();
             const ImU32 navShellCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(ThemeColors::current().modeCapsuleBG, 0.92f))
+                ? ImGui::GetColorU32(uiWithAlpha(ThemeColors::current().modeCapsuleBG, layeredNavyNav ? 1.0f : 0.92f))
                 : IM_COL32(18, 24, 38, 215);
             const ImU32 navActiveBgCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(uiMix(ThemeColors::current().modeCapsuleActiveBG, kToolbarAccent, 0.12f), 0.98f))
+                ? ImGui::GetColorU32(layeredNavyNav ? ThemeColors::current().modeCapsuleActiveBG : uiWithAlpha(uiMix(ThemeColors::current().modeCapsuleActiveBG, kToolbarAccent, 0.12f), 0.98f))
                 : IM_COL32(255, 255, 255, 245);
             const ImU32 navActiveHoverBgCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(uiMix(uiColors[ImGuiCol_TabHovered], uiColors[ImGuiCol_WindowBg], 0.66f), 0.98f))
+                ? ImGui::GetColorU32(layeredNavyNav ? ThemeColors::current().resultsTabHover : uiWithAlpha(uiMix(uiColors[ImGuiCol_TabHovered], uiColors[ImGuiCol_WindowBg], 0.66f), 0.98f))
                 : IM_COL32(240, 244, 255, 252);
             const ImU32 navActiveShadowCol = useSoftNavChrome
                 ? ImGui::GetColorU32(uiWithAlpha(uiMix(uiColors[ImGuiCol_Border], uiColors[ImGuiCol_WindowBg], 0.10f), isLightModeCapsuleTheme ? 0.08f : 0.20f))

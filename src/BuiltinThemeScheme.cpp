@@ -379,19 +379,19 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
     case AppTheme::LapisBlue:
         // Level-one refinement: preserve the navy canvas, gently separate nearby surfaces.
         s.mainWindowBG           = H(0xff34485f);
-        s.menuBarBG              = H(0xff283b51);
+        s.menuBarBG              = H(0xff2a3e55);
         s.menuText               = H(0xfff5f8fc);
         s.frameBgBase            = H(0xff3b526c);
         s.chromeBorder           = H(0xff99b0c6);
-        s.popupBG                = H(0xff30465f);
-        s.menuPopupBG            = H(0xff30465f);
-        s.dialogBG               = H(0xff30465f);
-        s.dialogPanelBG          = H(0xff30465f);
-        s.toolbarBG              = H(0xff283b51);
-        s.historyCapsuleBG       = H(0xff3b526c);
-        s.historyCapsuleActiveBG = H(0xff456181);
-        s.modeCapsuleBG          = H(0xff3b526c);
-        s.modeCapsuleActiveBG    = H(0xff456181);
+        s.popupBG                = H(0xff26394d);
+        s.menuPopupBG            = H(0xff26394d);
+        s.dialogBG               = H(0xff26394d);
+        s.dialogPanelBG          = H(0xff2b4056);
+        s.toolbarBG              = H(0xff223246);
+        s.historyCapsuleBG       = H(0xff354c65);
+        s.historyCapsuleActiveBG = H(0xff3d6390);
+        s.modeCapsuleBG          = H(0xff26394d);
+        s.modeCapsuleActiveBG    = H(0xff3d6390);
         s.toolbarAccent          = H(0xffaccbe8);
         s.controlAccent          = H(0xffaccbe8);
         s.transportBarBG         = H(0xff2e445c);

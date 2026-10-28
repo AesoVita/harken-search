@@ -10,11 +10,18 @@ int main() {
     int failures=0;
     auto check=[&](bool ok,const char* name){std::printf("%s %s\n",ok?"PASS":"FAIL",name);failures+=!ok;};
     check(s.filterBrowserBG.x>.98f && s.filterBrowserBG.y>.98f && s.filterBrowserBG.z>.98f,"white filter panel");
-    for(auto bg:{s.resultsBG,s.toolbarBG,s.metadataPanelBG,s.waveformBG,s.transportBarBG}) {
+    for(auto bg:{s.resultsBG,s.metadataPanelBG,s.waveformBG,s.transportBarBG}) {
         check(Luminance(bg)>.035 && Luminance(bg)<.13 && bg.z-bg.x>.08,"navy major surface close to original");
         check(Ratio(s.interfaceText,bg)>=4.5,"readable shared text on blue surfaces");
         check(Ratio(bg,s.resultsBG)<1.6,"gentle panel-to-panel contrast");
     }
+    // Approved toolbar/dialog reference: darker foundations, visibly raised controls.
+    check(Luminance(s.toolbarBG)>.025 && s.toolbarBG.z-s.toolbarBG.x>.08,"toolbar retains navy hue");
+    check(Ratio(s.menuBarBG,s.toolbarBG)>=1.15,"menu distinct from toolbar");
+    check(Ratio(s.frameBgBase,s.dialogBG)>=1.4,"dialog controls raised above body");
+    check(Ratio(s.historyCapsuleBG,s.toolbarBG)>=1.4,"search surface above toolbar");
+    check(Ratio(s.modeCapsuleActiveBG,s.modeCapsuleBG)>=1.7,"selected navigation above ordinary shell");
+    check(Ratio(s.interfaceText,s.toolbarBG)>=4.5,"toolbar text");
     check(s.waveformColor.x>.98f && s.waveformColor.y>.98f && s.waveformColor.z>.98f,"white waveform line");
     check(Ratio(s.waveformColor,s.waveformBG)>=4.5,"white waveform contrast");
     check(Ratio(s.chromeBorder,s.metadataPanelBG)>=3.0,"info boundary against panel");
@@ -25,6 +32,14 @@ int main() {
     check(Ratio(s.resultsSecondaryText,s.resultsBG)>=4.5,"secondary result labels");
     ImVec4 colors[ImGuiCol_COUNT]{};
     MistBlueChrome::Apply(colors,s);
+    const auto controls = MistBlueChrome::Controls(s);
+    check(Ratio(controls.normal,s.dialogBG)>=1.4,"effective dialog control separation");
+    check(Ratio(controls.normal,controls.title)>=1.5,"effective title/control hierarchy");
+    for(auto bg:{controls.normal,controls.hovered,controls.active}) {
+        check(Ratio(s.interfaceText,bg)>=4.5,"dialog text in normal hover and pressed states");
+        check(bg.w==1.0f,"control surfaces remain opaque");
+    }
+    check(Ratio(controls.muted,s.dialogBG)>=4.5,"dialog help text");
     check(Ratio(colors[ImGuiCol_TextDisabled],s.frameBgBase)>=4.5,"muted label on input surface");
     check(Ratio(s.filterBrowserOutline,s.filterBrowserBG)>=3.0,"white filter boundary");
     for(auto role:{ImGuiCol_ButtonActive,ImGuiCol_TabActive,ImGuiCol_TabHovered,ImGuiCol_HeaderActive})
