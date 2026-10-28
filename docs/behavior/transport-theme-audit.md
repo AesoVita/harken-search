@@ -34,3 +34,5 @@ python tools/qa_transport_themes.py --exe build_audit/Debug/HarkenSearch.exe --i
 固定九种状态：直通、旁通、挖槽、处理开启（含反向/声像/BM）、单声道、频谱展开、音量超过 100%、选区、宽 EQ。报告记录原始绘制颜色、透明叠加、区域、帧、截图 SHA-256、EXE SHA-256、Git 版本和源文件哈希。缺失项按条件检查，频谱收起到更多按钮时不把隐藏控件记为通过。
 
 检查范围是音效模式的顶部栏。未覆盖音乐模式、弹窗、悬停/拖动、波形底栏、变调轮、扫描中状态和其他窗口尺寸。文字实际大小、抗锯齿和控件间关系仍需查看真实截图；数字通过不代表全部视觉验收通过。
+
+频谱混合比的键盘输入另由 `TestTransportBlendInput` 验证：真实 ImGui 接收 Ctrl+单击后进入数字编辑，普通数值底板不得遮住输入文字，输入 75 并回车应保存为 75%，退出编辑后恢复清晰底色。运行：`cmake --build build_audit --config Debug --target TestTransportBlendInput`，再执行 `ctest --test-dir build_audit -C Debug -R TestTransportBlendInput --output-on-failure`。此交互测试不替代上述真实包截图。

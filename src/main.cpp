@@ -101,6 +101,7 @@
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
 #include "ui/TransportContrast.h"     // 主题检视模式
+#include "ui/TransportBlendSlider.h"
 #include "HarkenSearchThemeManager.h"   // 次世代视觉管理器
 #include "HarkenSearchWidgets.h"        // Aris shared controls for core product flows
 #include "HarkenSearchIcons.h"          // 官方品牌字标（菜单栏/启动页同源）
@@ -48003,19 +48004,12 @@ void RenderUI(AppState& state) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x * 0.18f));
                 float blendPercent = state.spectrogramBlend * 100.0f;
-                if (ImGui::SliderFloat(u8"##SpectrogramBlend", &blendPercent, 0.0f, 100.0f, "")) {
-                    state.spectrogramBlend = blendPercent / 100.0f;
-                }
-                const ImVec2 blendMin = ImGui::GetItemRectMin(), blendMax = ImGui::GetItemRectMax();
-                char blendText[16]; std::snprintf(blendText, sizeof(blendText), "%.0f%%", blendPercent);
-                const ImVec2 blendSize = ImGui::CalcTextSize(blendText);
-                const ImVec2 blendPos((blendMin.x + blendMax.x - blendSize.x) * .5f,
-                    (blendMin.y + blendMax.y - blendSize.y) * .5f);
                 const ImU32 blendInk = ImGui::GetColorU32(TransportContrast::ForSurface(
                     tcsTransport.interfaceText, spectrumFrame, 4.7));
-                barDl->AddRectFilled(ImVec2(blendPos.x - 2, blendPos.y),
-                    ImVec2(blendPos.x + blendSize.x + 2, blendPos.y + blendSize.y), ImGui::GetColorU32(spectrumFrame), 2);
-                barDl->AddText(blendPos, blendInk, blendText);
+                if (TransportBlendSlider::Draw(u8"##SpectrogramBlend", &blendPercent,
+                    blendInk, ImGui::GetColorU32(spectrumFrame))) {
+                    state.spectrogramBlend = blendPercent / 100.0f;
+                }
                 TransportVisualAudit::Item("spectrum.blend", true, blendInk, ImGui::GetColorU32(spectrumFrame));
                 TransportVisualAudit::Item("spectrum.blend.grip", false, ImGui::GetColorU32(ImGuiCol_SliderGrab), ImGui::GetColorU32(spectrumFrame));
                 if (HoveredForHelp()) {

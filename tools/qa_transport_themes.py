@@ -278,7 +278,8 @@ def run(args):
                         not_covered=['music mode', 'popups', 'hover/drag', 'waveform footer', 'pitch wheel', 'active library scan'])
         source_root = Path(__file__).resolve().parents[1]
         source_paths = ['src/main.cpp', 'src/WindowsMain.cpp', 'src/ui/TransportContrast.h',
-                        'src/ui/TransportVisualAudit.h', 'tools/qa_transport_themes.py']
+                        'src/ui/TransportVisualAudit.h', 'src/ui/TransportBlendSlider.h',
+                        'tools/qa_transport_themes.py']
         identity['source_sha256'] = {p: hashlib.sha256((source_root / p).read_bytes()).hexdigest() for p in source_paths}
         identity['git_revision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source_root, text=True).strip()
         identity['worktree_dirty'] = bool(subprocess.check_output(['git', 'status', '--porcelain'], cwd=source_root, text=True).strip())

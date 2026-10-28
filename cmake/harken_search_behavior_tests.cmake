@@ -6074,6 +6074,12 @@ aura_set_test_labels(TestTransportContrast ui)
 add_test(NAME TestTransportThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
     -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_transport_theme_audit.py)
 aura_set_test_labels(TestTransportThemeAudit ui)
+add_executable(TestTransportBlendInput EXCLUDE_FROM_ALL tests/test_transport_blend_input.cpp
+    ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp)
+target_include_directories(TestTransportBlendInput PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportBlendInput COMMAND TestTransportBlendInput)
+aura_set_test_labels(TestTransportBlendInput ui)
 
 add_executable(TestThemeColors EXCLUDE_FROM_ALL
     tests/test_theme_colors.cpp
