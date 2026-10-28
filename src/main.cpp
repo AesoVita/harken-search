@@ -947,7 +947,8 @@ SwitchDatabase(AppState& state,
                bool allowCreate = false,
                std::string* outImmediateError = nullptr,
                int initialWaveformCacheMode = -1,
-               bool overwriteExisting = false);
+               bool overwriteExisting = false,
+               std::function<void(bool, const std::string&)> afterDeferredStart = {});
 static bool SidebarRefreshGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_busy = false);
 static bool SidebarClearAllGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_emphasized = false);
 bool HorizontalSplitter(const char* id, float* panelHeight, float minHeight = 50.0f, float maxHeight = 500.0f, float width = 0.0f, bool growWhenDraggingDown = false);
@@ -10603,9 +10604,12 @@ static bool SwitchDatabase(AppState& state,
                            bool allowCreate,
                            std::string* outImmediateError,
                            int initialWaveformCacheMode,
-                           bool overwriteExisting) {
-    if (RequestInfoMetadataLeave(state,[&state,newDbPathUtf8,allowCreate,initialWaveformCacheMode,overwriteExisting] {
-        SwitchDatabase(state,newDbPathUtf8,allowCreate,nullptr,initialWaveformCacheMode,overwriteExisting);
+                           bool overwriteExisting,
+                           std::function<void(bool, const std::string&)> afterDeferredStart) {
+    if (RequestInfoMetadataLeave(state,[&state,newDbPathUtf8,allowCreate,initialWaveformCacheMode,overwriteExisting,afterDeferredStart=std::move(afterDeferredStart)] {
+        std::string error;
+        const bool started=SwitchDatabase(state,newDbPathUtf8,allowCreate,&error,initialWaveformCacheMode,overwriteExisting);
+        if(afterDeferredStart) afterDeferredStart(started,error);
     })) return false;
     const std::string effectiveDbPathUtf8 = newDbPathUtf8.empty()
         ? std::string()
@@ -33159,10 +33163,20 @@ void RenderUI(AppState& state) {
                 Platform::FileSystem::IsNetworkPath(fullPath)) {
                 newDbError = L(Db_RejectNetworkPath);
             } else {
-            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite)) {
+            auto deferredStart=[&state](bool started, const std::string& error) {
+                if (started) {
+                    newDbError.clear();
+                    newDbPending=true;
+                } else {
+                    newDbError=error.empty() ? state.dbSwitchError : error;
+                    if (newDbError.empty()) newDbError=state.database.getLastError();
+                    if (newDbError.empty()) newDbError=L(Db_CreateNotStarted);
+                }
+            };
+            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite, deferredStart)) {
                 newDbError.clear();
                 newDbPending = true;
-            } else {
+            } else if (!state.infoEditSession.awaitingChoice) {
                 if (newDbError.empty()) {
                     newDbError = state.database.getLastError();
                 }

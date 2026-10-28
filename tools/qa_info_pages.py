@@ -86,7 +86,7 @@ def run(args):
             if 'unknown command' not in str(error): raise
         initial=settled()
         checks.append({'case':'startup','state':initial})
-        if args.edit_suite:
+        if args.edit_suite or args.edit_tray_suite or args.edit_update_suite:
             from qa_info_edit import run_edit_suite
             run_edit_suite(args, command, settled, click, capture, process, checks)
         elif args.expect_saved or args.prepare_demo:
@@ -178,4 +178,6 @@ if __name__=='__main__':
     parser.add_argument('--expect-saved',action='store_true')
     parser.add_argument('--prepare-demo',action='store_true')
     parser.add_argument('--edit-suite',action='store_true')
+    parser.add_argument('--edit-tray-suite',action='store_true')
+    parser.add_argument('--edit-update-suite',action='store_true')
     run(parser.parse_args())

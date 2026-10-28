@@ -115,9 +115,15 @@ def run_edit_suite(args, command, settled, click, capture, process, checks):
     command(cmd='switch_db',path=str(databases[0]))
     wait_for(lambda:command(cmd='get_state'),lambda s:not s['db_switch_in_progress'] and s['result_count']>=2)
     select(0); before_exit=double_click(); change('exit-discard')
-    command(cmd='info_edit_input',action='exit')
-    assert settled()['awaiting_save'] and process.poll() is None
-    capture('exit-requires-choice','info.saveNo')
+    exit_action='tray_exit' if args.edit_tray_suite else 'update_exit' if args.edit_update_suite else 'exit'
+    command(cmd='info_edit_input',action=exit_action)
+    pending=settled()
+    assert pending['awaiting_save'] and process.poll() is None,pending
+    if args.edit_tray_suite:
+        assert not pending['window_iconic'],pending
+        capture('tray-exit-choice-visible','info.saveNo')
+    else:
+        capture('exit-requires-choice','info.saveNo')
     for phase in ['hover','down','up']:
         command(cmd='info_page_pointer',key='info.saveNo',phase=phase)
         time.sleep(.12)
@@ -125,4 +131,6 @@ def run_edit_suite(args, command, settled, click, capture, process, checks):
     with sqlite3.connect(databases[0]) as saved:
         actual=saved.execute('SELECT description FROM audio_files WHERE id=?',(before_exit['edit_id'],)).fetchone()[0]
     assert actual==before_exit['saved_description'],(actual,before_exit)
-    checks.append({'case':'exit-waits-for-explicit-no','exit_code':process.returncode})
+    checks.append({'case':'tray-exit-restores-save-choice' if args.edit_tray_suite else
+                   'update-exit-waits-for-explicit-no' if args.edit_update_suite else 'exit-waits-for-explicit-no',
+                   'exit_code':process.returncode})
