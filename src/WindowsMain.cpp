@@ -9,6 +9,7 @@
 #include "SpectrogramMath.h"
 #include "Theme.h"
 #include "ThemeInspector.h"
+#include "ui/TransportVisualAudit.h"
 #include "AnnotationBridge.h"
 #include "BackgroundIoPolicy.h"
 #include "BetaFeatureFlags.h"
@@ -58,6 +59,7 @@
 #include "UiHostServices.h"
 #include "platform/platform.h"
 #include "DiagnosticFileLifecycle.h"
+#include "ScanDatabaseOpenDiagnostics.h"
 
 // Legacy compatibility identifier: Auro.AudioFile.
 static constexpr const char* kLegacyAuroAudioFileAssociation = "Auro.AudioFile";
@@ -3102,11 +3104,15 @@ static bool BeginFolderScan(
         Database scanDb;
         const bool scanDbOpen = !scanDbPath.empty() && scanDb.open(scanDbPath);
         if (!scanDbOpen) {
+            const std::string err = scanDb.getLastError().empty()
+                ? std::string("open scan database failed")
+                : scanDb.getLastError();
+            DIAG_SYSTEM("Scan", aura::FormatScanDatabaseOpenFailure(scanDbPath, err, foldersToScan).c_str());
             if (state.isScanTaskCurrent(scanGeneration)) {
-                const std::string err = scanDb.getLastError();
+                const std::string shownErr = err;
                 state.setScanFileKeyStr(LStr::SCAN_FailedFmt,  // H2b: keyed; arg stays literal-diagnostic
-                    err.empty() ? std::string("open scan database failed") : err);
-                state.addScanError(err.empty() ? std::string("open scan database failed") : err);
+                    shownErr);
+                state.addScanError(shownErr);
                 state.scanErrorCount = 1;
                 state.scanFatalFailure.store(true, std::memory_order_release);
             }
@@ -4350,6 +4356,44 @@ static void PollQaCommandFile(AppState& state) {
         }
     } else if (cmd == aura::diagnostics::FrameBudgetDiagnostics::resultCommand()) {
         result = aura::diagnostics::FrameBudgetDiagnostics::shared().resultJson();
+    } else if (cmd == "transport_audit" || cmd == "transport_audit_setup") {
+        if (!MagicEqQaIsolationReady()) {
+            result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
+        } else if (cmd == "transport_audit") {
+            TransportVisualAudit::Request();
+            result = TransportVisualAudit::Json();
+        } else {
+            const std::string scenario = getStr(raw, "scenario");
+            if (scenario != "pass" && scenario != "bypass" && scenario != "notch" &&
+                scenario != "processing" && scenario != "mono" && scenario != "spectrum" &&
+                scenario != "overdrive" && scenario != "selection" && scenario != "wide") {
+                result = "{\"ok\":false,\"error\":\"invalid_transport_audit_scenario\"}";
+            } else {
+                state.audioEngine.stop();
+                state.settings.productMode = ProductMode::SFX;
+                state.audioEngine.setVolume(scenario == "overdrive" ? 1.10f : (scenario == "processing" ? .85f : .26f));
+                state.audioEngine.setMono(scenario == "mono");
+                state.audioEngine.setPan(scenario == "processing" ? .5f : 0);
+                state.audioEngine.setCenterSense(scenario == "processing" ? .6f : 0);
+                state.audioEngine.setBassMonoFreq(scenario == "processing" ? 80.f : 0.f);
+                state.audioEngine.setReverse(scenario == "processing");
+                state.audioEngine.setInPoint(scenario == "selection" ? .2f : 0.f);
+                state.audioEngine.setOutPoint(scenario == "selection" ? .8f : 1.f);
+                state.showSpectrogram = scenario == "spectrum";
+                state.spectrogramSplit = false;
+                state.spectrogramBlend = .5f;
+                MagicEQSettings eq = state.audioEngine.getMagicEQ();
+                eq.enabled = scenario != "bypass";
+                eq.mode = scenario == "notch" ? MagicEQMode::Notch : MagicEQMode::Pass;
+                eq.widgetWidth = scenario == "wide" ? 800 : 340;
+                eq.centerFreq = 1000; eq.halfWidthPercent = 30;
+                state.audioEngine.setMagicEQ(eq);
+                s_magicEqQaPointer.active = true; s_magicEqQaPointer.pending = true;
+                s_magicEqQaPointer.held = false; s_magicEqQaPointer.x = -10000; s_magicEqQaPointer.y = -10000;
+                TransportVisualAudit::Request();
+                result = "{\"ok\":true,\"cmd\":\"transport_audit_setup\"}";
+            }
+        }
     } else if (cmd == "magic_eq_identity" || cmd == "magic_eq_state" ||
                cmd == "magic_eq_set_state" || cmd == "magic_eq_pointer") {
         // This channel exists only in a compile-time pinned QA build. An env
@@ -5998,6 +6042,30 @@ static void PollQaCommandFile(AppState& state) {
                    + ",\"path\":\"" + jsonEscape(path) + "\"}";
         }
 
+    } else if (cmd == "folder_shortcut") {
+#if ARIS_PREVIEW_ISOLATION
+        // Exercise the same bookmark and navigation handlers as the UI,
+        // without injecting input into the user's desktop.
+        extern bool AddBrowserFolderToQuickPaths(AppState&, const std::string&);
+        extern void OpenFolderShortcut(AppState&, const FolderShortcut&);
+        const std::string path = getStr(raw, "bookmark_path");
+        const int index = getInt(raw, "open_index", -1);
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire) ||
+            (!path.empty() && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(path)) ||
+            index < -1 || index >= static_cast<int>(state.folderShortcuts.size()) ||
+            (index >= 0 && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(state.folderShortcuts[index].path))) {
+            result = R"({"ok":false,"error":"isolated_shortcut_required"})";
+        } else {
+            if (!path.empty()) AddBrowserFolderToQuickPaths(state, path);
+            if (index >= 0) OpenFolderShortcut(state, state.folderShortcuts[index]);
+            result = "{\"ok\":true,\"mode\":\"" + std::string(viewModeToString(state.viewMode)) +
+                "\",\"browser_path\":\"" + jsonEscape(state.fileBrowser.getCurrentPath()) +
+                "\",\"entries\":" + std::to_string(state.fileBrowser.activeEntries().size()) +
+                ",\"shortcut_count\":" + std::to_string(state.folderShortcuts.size()) + "}";
+        }
+#else
+        result = R"({"ok":false,"error":"preview_isolation_disabled"})";
+#endif
     } else if (cmd == "set_view_mode") {
         std::string mode = getStr(raw, "mode");
         std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);

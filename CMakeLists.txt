@@ -816,6 +816,17 @@ if(WIN32)
     target_compile_options(TestDockFrameLive PRIVATE /utf-8)
     target_link_libraries(TestDockFrameLive PRIVATE opengl32 gdi32 user32)
     add_test(NAME DockFrameLive COMMAND TestDockFrameLive)
+    add_executable(TestDetachedViewportInput EXCLUDE_FROM_ALL
+        tests/test_detached_viewport_input_win32.cpp
+        ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp
+        ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_win32.cpp)
+    target_include_directories(TestDetachedViewportInput PRIVATE src ${IMGUI_DIR} ${IMGUI_DIR}/backends)
+    target_compile_features(TestDetachedViewportInput PRIVATE cxx_std_17)
+    target_compile_options(TestDetachedViewportInput PRIVATE /utf-8)
+    target_link_libraries(TestDetachedViewportInput PRIVATE gdi32 user32 dwmapi)
+    add_test(NAME DetachedViewportInput COMMAND TestDetachedViewportInput)
+    set_tests_properties(DetachedViewportInput PROPERTIES LABELS "dock" TIMEOUT 30)
     add_executable(TestDockDragSession EXCLUDE_FROM_ALL tests/test_dock_drag_session.cpp src/DockLayout.cpp src/DockDragSession.cpp)
     target_include_directories(TestDockDragSession PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
     target_compile_features(TestDockDragSession PRIVATE cxx_std_17)
@@ -945,7 +956,7 @@ endif()
 # 诊断模块：开发构建用完整实现，上线用 Stub + DevTools 头文件内联空实现
 list(APPEND APP_SOURCES src/DiagnosticFileLifecycle.cpp)
 if(AURA_BUILD_DIAGNOSTICS)
-    list(APPEND APP_SOURCES src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
+    list(APPEND APP_SOURCES src/ScanDatabaseOpenDiagnostics.cpp src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
 else()
     list(APPEND APP_SOURCES src/DiagnosticsLoggerStub.cpp src/UserActionLogStub.cpp)
 endif()

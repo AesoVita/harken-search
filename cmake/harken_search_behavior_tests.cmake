@@ -802,6 +802,8 @@ aura_set_test_labels(TestTrigramE2E db)
 
 add_executable(TestBrowserSearch EXCLUDE_FROM_ALL
     tests/test_browser_search.cpp
+    src/PathUtils.cpp
+    tests/playlist_folder_tree_path_conversion_stub.cpp
 )
 if(MSVC)
     target_compile_options(TestBrowserSearch PRIVATE /W3 /utf-8)
@@ -6085,6 +6087,20 @@ aura_set_test_labels(TestDatabaseNavNonblockingContract core)
 # F-033 Phase 0 QA: DB schema migration + TagVocabularyMapper unit tests
 
 
+add_executable(TestTransportContrast EXCLUDE_FROM_ALL tests/test_transport_contrast.cpp)
+target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
+aura_set_test_labels(TestTransportContrast ui)
+add_test(NAME TestTransportThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_transport_theme_audit.py)
+aura_set_test_labels(TestTransportThemeAudit ui)
+add_executable(TestTransportBlendInput EXCLUDE_FROM_ALL tests/test_transport_blend_input.cpp
+    ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp)
+target_include_directories(TestTransportBlendInput PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportBlendInput COMMAND TestTransportBlendInput)
+aura_set_test_labels(TestTransportBlendInput ui)
+
 add_executable(TestThemeColors EXCLUDE_FROM_ALL
     tests/test_theme_colors.cpp
     src/Theme.cpp
@@ -6556,6 +6572,18 @@ if(MSVC)
 endif()
 add_test(NAME TestEmergencyFileWriter COMMAND TestEmergencyFileWriter)
 aura_set_test_labels(TestEmergencyFileWriter core)
+
+add_executable(TestScanDatabaseOpenDiagnostics EXCLUDE_FROM_ALL
+    tests/test_scan_database_open_diagnostics.cpp
+    src/ScanDatabaseOpenDiagnostics.cpp
+)
+target_include_directories(TestScanDatabaseOpenDiagnostics PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_features(TestScanDatabaseOpenDiagnostics PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestScanDatabaseOpenDiagnostics PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME TestScanDatabaseOpenDiagnostics COMMAND TestScanDatabaseOpenDiagnostics)
+aura_set_test_labels(TestScanDatabaseOpenDiagnostics core)
 
 add_executable(TestDiagnosticsLoggerPersistence EXCLUDE_FROM_ALL
     tests/test_diagnostics_logger_persistence.cpp
