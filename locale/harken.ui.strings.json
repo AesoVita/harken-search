@@ -2,6 +2,20 @@
   "schema_version": 1,
   "entries": [
     {
+      "id": "Info_VisiblePages",
+      "type": "ui",
+      "zh": "显示的入口",
+      "en": "Visible pages",
+      "ja": "表示するページ"
+    },
+    {
+      "id": "Info_KeepOnePage",
+      "type": "ui",
+      "zh": "至少保留一个可见入口",
+      "en": "Keep at least one page visible",
+      "ja": "少なくとも1つのページを表示してください"
+    },
+    {
       "id": "Db_PreviewPathRejected",
       "type": "ui",
       "zh": "当前是隔离测试包，只能打开测试目录内的数据库。日常使用请安装正常版本。",
@@ -2744,43 +2758,7 @@
       "zh": "+ 添加规则",
       "en": "+ Add Rule",
       "ja": "+ ルールを追加"
-    },
-    {
-      "id": "Empty_NoFiles",
-      "type": "ui",
-      "zh": "还没有添加任何文件 — 拖入文件夹或使用工具栏「添加目录」开始扫描",
-      "en": "No files yet — drag folders here or use the toolbar to add a directory",
-      "ja": "ファイルがまだありません — フォルダーをドラッグするか、ツールバーの「ディレクトリを追加」からスキャン"
-    },
-    {
-      "id": "Empty_FilterAndSearch",
-      "type": "ui",
-      "zh": "当前过滤条件 + 关键词「%s」下没有结果 — 试试清除文件夹过滤或减少关键词",
-      "en": "No results for filter + keyword \"%s\" — try clearing folder filter or fewer keywords",
-      "ja": "現在のフィルター + キーワード「%s」に一致する結果がありません — フォルダーフィルター解除やキーワード削減をお試しください"
-    },
-    {
-      "id": "Empty_FilterOnly",
-      "type": "ui",
-      "zh": "当前过滤条件下没有结果 — 试试在侧边栏清除文件夹或封面过滤",
-      "en": "No results with current filter — try clearing folder or cover filter in the sidebar",
-      "ja": "現在のフィルター条件で結果がありません — サイドバーでフォルダー/ジャケットフィルターをクリアしてみてください"
-    },
-    {
-      "id": "Empty_SearchOnly",
-      "type": "ui",
-      "zh": "没有找到「%s」的结果 — 试试减少关键词、检查拼写，或关闭精准搜索",
-      "en": "No results for \"%s\" — try fewer keywords, check spelling, or disable exact match",
-      "ja": "「%s」の結果が見つかりません — キーワード削減、スペル確認、完全一致オフをお試しください"
-    },
-    {
-      "id": "Empty_NoResults",
-      "type": "ui",
-      "zh": "暂无结果",
-      "en": "No results",
-      "ja": "結果なし"
-    },
-    {
+    },    {
       "id": "Panel_FilterTitle",
       "type": "ui",
       "zh": "筛选器",
@@ -13055,15 +13033,7 @@
       "zh": "文件夹聚合视图只用于查看；请进入具体播放列表后再移除音效。",
       "en": "The folder overview is view-only; enter a specific playlist before removing sounds.",
       "ja": "フォルダー集約ビューは閲覧専用です。具体的なプレイリストに入ってから音を削除してください。"
-    },
-    {
-      "id": "Search_NoResultTips",
-      "type": "ui",
-      "zh": "可尝试更短关键词、拼音首字母、path:路径片段，或清除筛选条件。",
-      "en": "Try shorter keywords, pinyin initials, path: fragments, or clear filters.",
-      "ja": "より短いキーワード、頭字音、path:断片を試すか、フィルタをクリアしてください。"
-    },
-    {
+    },    {
       "id": "ASR_LoadLocalModel",
       "type": "ui",
       "zh": "加载本地语音模型",

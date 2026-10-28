@@ -8185,6 +8185,17 @@ if(WIN32)
     endforeach()
 endif()
 
+add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
+    thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
+    thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)
+target_include_directories(TestInfoArtworkFooterLayout PRIVATE src thirdparty/imgui)
+add_test(NAME InfoArtworkFooterLayout COMMAND TestInfoArtworkFooterLayout)
+aura_set_test_labels(InfoArtworkFooterLayout ui info)
+target_include_directories(TestInfoPageNavigation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME InfoPageNavigation COMMAND TestInfoPageNavigation)
+aura_set_test_labels(InfoPageNavigation ui info)
+
 foreach(_standalone_localized_target IN ITEMS
     TestMetadataWriterImageLoad TestShortcutPresets TestTransferEmbed TestConsentManager)
     target_sources(${_standalone_localized_target} PRIVATE src/Localization.cpp)

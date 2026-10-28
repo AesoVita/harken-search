@@ -4394,6 +4394,73 @@ static void PollQaCommandFile(AppState& state) {
                 result = "{\"ok\":true,\"cmd\":\"transport_audit_setup\"}";
             }
         }
+
+#if ARIS_PREVIEW_ISOLATION
+    } else if (cmd == "info_page_state" || cmd == "info_page_pointer" || cmd == "info_page_layout") {
+        // Real ImGui input, restricted to this compile-time isolated QA package.
+        // Never moves the operating-system cursor or targets another process.
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire)) {
+            result = R"({"ok":false,"error":"fixed_preview_isolation_required"})";
+        } else {
+            s_magicEqQaCollectUntilMs.store(Platform::MonotonicMilliseconds()+5000,std::memory_order_release);
+            const auto snapshot = ThemeInspector::CopyLatestSnapshot();
+            if (cmd == "info_page_layout") {
+                const int width = getInt(raw,"width",320);
+                if (width < 180 || width > 800 || s_magicEqQaPointer.held) {
+                    result = R"({"ok":false,"error":"invalid_info_layout"})";
+                } else {
+                    state.panelFileInfo.dockedWidth = static_cast<float>(width);
+                    state.panelFileInfo.floatW = static_cast<float>(width);
+                    state.panelFileInfo.floatH = 600;
+                    state.panelFileInfo.floatX = 100;
+                    state.panelFileInfo.floatY = 120;
+                    state.panelFileInfo.visible = true;
+                    state.panelFileInfo.floating = getBool(raw,"floating",false);
+                    result = R"({"ok":true})";
+                }
+            } else if (cmd == "info_page_pointer") {
+                static std::string heldKey;
+                const std::string key = getStr(raw,"key");
+                const std::string phase = getStr(raw,"phase");
+                const ThemeInspector::AnnotationZoneSnapshot* target = nullptr;
+                for (const auto& z : snapshot.zones) if (z.key==key && z.key.rfind("info.",0)==0) target=&z;
+                if (s_magicEqQaPointer.pending || !target || snapshot.frameNumber==0 ||
+                    snapshot.frameNumber+1 < static_cast<std::uint64_t>(ImGui::GetFrameCount()) ||
+                    (phase!="hover" && phase!="down" && phase!="up") ||
+                    ((phase=="hover" || phase=="down") && s_magicEqQaPointer.held) ||
+                    (phase=="up" && (!s_magicEqQaPointer.held || heldKey!=key))) {
+                    result = R"({"ok":false,"error":"invalid_info_pointer_transition"})";
+                } else {
+                    const float x=(target->minX+target->maxX)*.5f, y=(target->minY+target->maxY)*.5f;
+                    unsigned int viewport=ImGui::GetMainViewport()->ID;
+                    for (auto* v : ImGui::GetPlatformIO().Viewports)
+                        if (x>=v->Pos.x && x<v->Pos.x+v->Size.x && y>=v->Pos.y && y<v->Pos.y+v->Size.y) viewport=v->ID;
+                    s_magicEqQaPointer={true,phase!="hover",phase=="down",x,y,viewport};
+                    if (phase=="up") { s_magicEqQaPointer.held=false; heldKey.clear(); }
+                    if (phase=="down") heldKey=key;
+                    result = R"({"ok":true})";
+                }
+            } else {
+                const auto* infoWindow = ImGui::FindWindowByName("Info##FloatingFileInfo");
+                result="{\"ok\":true,\"selected\":"+std::to_string(state.settings.infoPages.selected)+
+                    ",\"visible_mask\":"+std::to_string(state.settings.infoPages.visibleMask)+
+                    ",\"floating\":"+(state.panelFileInfo.floating?"true":"false")+
+                    ",\"outer_scrollbar\":"+(infoWindow && infoWindow->ScrollbarY?"true":"false")+
+                    ",\"outer_scroll_max\":"+std::to_string(infoWindow?infoWindow->ScrollMax.y:0.0f)+
+                    ",\"frame\":"+std::to_string(snapshot.frameNumber)+",\"zones\":{";
+                bool first=true;
+                for (const auto& z:snapshot.zones) {
+                    if (z.key.rfind("info.",0)!=0) continue;
+                    if (!first) result+=",";
+                    first=false;
+                    result+="\""+jsonEscape(z.key)+"\":{\"x\":"+std::to_string(z.minX)+
+                        ",\"y\":"+std::to_string(z.minY)+",\"w\":"+std::to_string(z.maxX-z.minX)+
+                        ",\"h\":"+std::to_string(z.maxY-z.minY)+"}";
+                }
+                result+="}}";
+            }
+        }
+#endif
     } else if (cmd == "magic_eq_identity" || cmd == "magic_eq_state" ||
                cmd == "magic_eq_set_state" || cmd == "magic_eq_pointer") {
         // This channel exists only in a compile-time pinned QA build. An env

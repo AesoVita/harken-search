@@ -5333,6 +5333,10 @@ void LoadAppSettings(AppState& state) {
         state.settingsDirty = true;
     }
 
+    state.settings.infoPages.visibleMask = ParseInt(kv["infoPageVisibleMask"], 15);
+    state.settings.infoPages.selected = ParseInt(kv["infoSelectedPage"], 1);
+    state.settings.infoPages.Normalize(AURA_BUILD_DIAGNOSTICS != 0);
+
     // UI sizing. Reading font is the single user-facing size; chrome is pinned.
     {
         auto itReading = kv.find("readingFontSize");
@@ -6262,6 +6266,8 @@ bool TrySaveAppSettings(const AppState& state) {
     items.push_back({"fileInfoDockSide", std::to_string((int)state.fileInfoDockSide)});
     items.push_back({"sidebarDockSide", std::to_string((int)state.sidebarDockSide)});
     items.push_back({"infoPanelLayoutVersion", "1"});
+    items.push_back({"infoPageVisibleMask", std::to_string(state.settings.infoPages.visibleMask)});
+    items.push_back({"infoSelectedPage", std::to_string(state.settings.infoPages.selected)});
 
     // UI sizing
     items.push_back({"fontSize", std::to_string(state.settings.fontSize)});
@@ -17368,8 +17374,7 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
-    const FileInfoPanelChrome& chrome,
-    ImGuiTabItemFlags artworkFlags) {
+    const FileInfoPanelChrome& chrome) {
     auto withAlpha = [](ImVec4 c, float a) -> ImVec4 { c.w = a; return c; };
     auto mix = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
         return ImVec4(
@@ -17414,9 +17419,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Metadata Summary (classic library layout)
         // ---------------------------------------------------------------------
-        bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-        ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22027");
-        DecorateFileInfoTab(chrome, tabMetaOpen);
+        bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
         if (tabMetaOpen) {
             BeginTransientScrollbarChild("##MetaSummaryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -18110,13 +18114,12 @@ void RenderFileInfoPanelTabContents(
 
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } else {
             // Fallback: keep Info functional even when no file is loaded in engine.
-            bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-            ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22787");
-            DecorateFileInfoTab(chrome, tabMetaOpen);
+            bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
             if (tabMetaOpen) {
                 BeginTransientScrollbarChild("##MetaSummaryNoLoaded", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
                 ImGui::Indent(10.0f);
@@ -18174,7 +18177,7 @@ void RenderFileInfoPanelTabContents(
                 }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } // end loaded/unloaded meta summary
 
@@ -18185,9 +18188,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Artwork wall (封面墙 - 极速版)
         // ---------------------------------------------------------------------
-        bool tabCoverOpen = ImGui::BeginTabItem(L(Info_ArtworkTab), nullptr, artworkFlags);
-        ThemeInspector::RegisterLastItem("info.artwork", L(Info_ArtworkTab), "src/main.cpp:22857");
-        DecorateFileInfoTab(chrome, tabCoverOpen);
+        bool tabCoverOpen = (state.settings.infoPages.selected == 1);
+
         SetCoverWallPriorityMode(tabCoverOpen);
 
         // 方案 A：仅当封面墙 Tab 打开时才拉表+首屏预填，非封面墙时不跑以降低主线程压力（见 第一刀）
@@ -18879,9 +18881,8 @@ void RenderFileInfoPanelTabContents(
 // 底部工具栏（固定，不跟随滚动）
             constexpr float kArtworkFaderTrackH = 14.0f;
             constexpr float kArtworkSliderStripH = 22.0f;
-            float bottomBarH = kArtworkSliderStripH + 4.0f;
             float availH = ImGui::GetContentRegionAvail().y;
-            float scrollH = std::max(32.0f, availH - bottomBarH);
+            float scrollH = FileInfoArtworkContentHeight(availH, kArtworkSliderStripH);
             cw.thumbSize = aura::coverwall::ClampThumbSize(cw.thumbSize);
 
             // When a specific cover-key filter is active, force-narrow the
@@ -19129,7 +19130,7 @@ void RenderFileInfoPanelTabContents(
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().coverWallBG);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true);
             int coverWallReadyCount = 0;  // 供底部统计显示
             int coverWallLiveTextureCount = 0;
             int coverWallMirrorCount = 0;
@@ -19890,20 +19891,19 @@ void RenderFileInfoPanelTabContents(
                     cw.thumbSize,
                     aura::coverwall::kMinThumbSizePx,
                     aura::coverwall::ResolveThumbSizeSliderMaxPx(panelWidth));
-                ImGui::SetCursorScreenPos(ImVec2(stripPos.x, stripPos.y + stripH));
+                FinishFileInfoArtworkFooter(stripPos, stripH);
             }
 
             } // end warmup skip else
 
-            ImGui::EndTabItem();
+
             DevTools_EndFramePhase();
         }
 
         // Transfer History tab — hidden in release builds (placeholder only)
 #if AURA_BUILD_DIAGNOSTICS
-        bool tabTransferOpen = ImGui::BeginTabItem(L(Info_TransferHistoryTab));
-        ThemeInspector::RegisterLastItem("info.transferHistory", L(Info_TransferHistoryTab), "src/main.cpp:24590");
-        DecorateFileInfoTab(chrome, tabTransferOpen);
+        bool tabTransferOpen = (state.settings.infoPages.selected == 2);
+
         if (tabTransferOpen) {
             BeginTransientScrollbarChild("##TransferHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19941,16 +19941,15 @@ void RenderFileInfoPanelTabContents(
             ImGui::PopStyleColor(2);
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 #endif // AURA_BUILD_DIAGNOSTICS
 
         // ---------------------------------------------------------------------
         // Play History - Recent playback history — 始终可见
         // ---------------------------------------------------------------------
-        bool tabPlayOpen = ImGui::BeginTabItem(L(Info_PlayHistoryTab));
-        ThemeInspector::RegisterLastItem("info.playHistory", L(Info_PlayHistoryTab), "src/main.cpp:24636");
-        DecorateFileInfoTab(chrome, tabPlayOpen);
+        bool tabPlayOpen = (state.settings.infoPages.selected == 3);
+
         if (tabPlayOpen) {
             BeginTransientScrollbarChild("##PlayHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19995,7 +19994,7 @@ void RenderFileInfoPanelTabContents(
             }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 }
 
@@ -40006,10 +40005,14 @@ void RenderUI(AppState& state) {
     // The Info title actions belong to the module shell, so they must be
     // rendered by both the legacy right column and every Dock tree leaf.
     // Keep a fixed reserve so the drag hit area cannot cover either button.
-    constexpr float kInfoTitleActionsWidth = 48.0f;
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
                                         ImDrawList* infoDl) {
+        const float pageAvailableWidth = shell.shellWidth - 48.0f;
+        const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
+        RenderFileInfoPageActions(infoState,
+            ImVec2(shell.insetL + shell.shellWidth - 48.0f - pageWidth, 0.0f),
+            shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
         const float editIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
@@ -40119,6 +40122,21 @@ void RenderUI(AppState& state) {
         }
         if (!canEdit && !isEditing) ImGui::EndDisabled();
         ImGui::PopID();
+        return 48.0f + pageWidth;
+    };
+
+    auto drawFloatingInfoTitleActions = [&]() {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const ImRect title = window->TitleBarRect();
+        const ImVec2 saved = ImGui::GetCursorPos();
+        DockModuleShellLayout shell;
+        shell.insetL = 0.0f;
+        shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
+        shell.titleHeight = title.GetHeight();
+        ImGui::PushClipRect(title.Min, title.Max, false);
+        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+        ImGui::PopClipRect();
+        ImGui::SetCursorPos(saved);
     };
 
     auto pressDockTitle = [&](const char* moduleId, PanelState& panel,
@@ -42411,12 +42429,6 @@ void RenderUI(AppState& state) {
         const bool needsDbSetup =
             state.viewMode != ViewMode::Browser &&
             state.startupNeedsDatabaseSetup && !state.database.isOpen();
-        const bool showEmptyResultsSurface =
-            state.viewMode != ViewMode::Browser &&
-            !needsDbSetup && state.searchResults.empty() &&
-            !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-            !(state.totalFileCount == 0);
-        constexpr float kEmptyResultsSurfaceHeight = 180.0f;
         ImGuiTableFlags tableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                                       ImGuiTableFlags_Hideable |
                                       ImGuiTableFlags_BordersOuter |
@@ -42549,10 +42561,10 @@ void RenderUI(AppState& state) {
             ImGui::Dummy(ImVec2(availW, lineH));
             if (listFont) ImGui::PopFont();
         };
-        const ImVec2 fileTableOuterSize = showEmptyResultsSurface
-            ? ImVec2(0.0f, -kEmptyResultsSurfaceHeight)
-            : ImVec2(0.0f, 0.0f);
-        ImVec2 adjustedFileTableOuterSize = fileTableOuterSize;
+        // UX #109 follow-up (TASK-20261028-NO-EMPTY-SURFACE): the standalone
+        // empty-results surface was removed at the user's request, so the
+        // results table keeps its full height even with zero rows.
+        ImVec2 adjustedFileTableOuterSize = ImVec2(0.0f, 0.0f);
         if (emptyLibraryFileTable) {
             // Dropping BordersOuter would otherwise let the header fill to the independent frame.
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kResultsTableOuterBorder);
@@ -45416,8 +45428,9 @@ void RenderUI(AppState& state) {
                     LoadMoreResults(state);
                 }
 
-                // UX #109: Empty state guidance is owned by the dedicated empty-database surface.
-                // Keep the results layer empty so it cannot overlap the bottom transport controls.
+                // UX #109: Empty state — the results layer stays empty on
+                // purpose: no row is rendered and no guidance surface is
+                // reserved, so it cannot overlap the bottom transport controls.
 
                 // Apply per-tab scroll restoration only after rows/empty-state
                 // content have established this table's current scroll extent.
@@ -45456,69 +45469,6 @@ void RenderUI(AppState& state) {
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(); // Pop transparent ChildBg for table scroll region
         }
-    }
-
-    // UX #109: Empty state surface — keep guidance in its own bounded child,
-    // outside the results table and above the independent player footer.
-    const bool showStandaloneEmptyResultsSurface =
-        state.viewMode != ViewMode::Browser &&
-        !(state.startupNeedsDatabaseSetup && !state.database.isOpen()) &&
-        state.searchResults.empty() && !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-        !(state.totalFileCount == 0);
-    constexpr float kStandaloneEmptyResultsSurfaceHeight = 180.0f;
-    if (showStandaloneEmptyResultsSurface) {
-        BeginTransientScrollbarChild(
-            "##EmptyResultsSurface",
-            ImVec2(0.0f, kStandaloneEmptyResultsSurfaceHeight),
-            true,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        const bool _hasKw = (state.searchBuffer[0] != '\0');
-        const bool _hasUserCollectionRules =
-            state.activeUserCollectionIdx >= 0 &&
-            state.activeUserCollectionIdx < static_cast<int>(state.userCollections.size()) &&
-            std::any_of(
-                state.userCollections[state.activeUserCollectionIdx].rules.begin(),
-                state.userCollections[state.activeUserCollectionIdx].rules.end(),
-                [](const AppState::CollectionRule& rule) { return rule.value[0] != '\0'; });
-        const auto _hasActivePillState = [](const auto& pillState) {
-            return std::any_of(
-                pillState.begin(), pillState.end(),
-                [](const auto& entry) { return entry.second != 0; });
-        };
-        const bool _hasFilt = state.folderFilterActive || state.coverFilterActive
-            || !state.selectedFolderPath.empty() || !state.coverFilterPath.empty()
-            || state.categoryFilterBuffer[0] != '\0'
-            || state.artistFilterBuffer[0] != '\0'
-            || !state.artistFilterAlternates.empty()
-            || state.albumFilterBuffer[0] != '\0'
-            || state.formatFilterIndex != 0
-            || state.channelFilterIndex != 0
-            || state.sampleRateFilterIndex != 0
-            || state.minDurationFilter > 0.0f || state.maxDurationFilter > 0.0f
-            || state.minBpmFilter > 0.0f || state.maxBpmFilter > 0.0f
-            || state.keyFilterBuffer[0] != '\0'
-            || state.coverFilterIndex != 0
-            || state.findSameFilenameActive
-            || state.activeSmartCollection != SmartCollection::None
-            || _hasUserCollectionRules
-            || _hasActivePillState(state.genrePillState)
-            || _hasActivePillState(state.instrumentPillState)
-            || !(state.showWAV && state.showMP3 && state.showFLAC && state.showOGG &&
-                 state.showAIFF && state.showM4A && state.showWMA && state.showOther);
-        const bool _dbEmpty = (state.totalFileCount == 0);
-        if (_dbEmpty) {
-            ImGui::TextDisabled("%s", L(Empty_NoFiles));
-        } else if (_hasKw && _hasFilt) {
-            ImGui::TextDisabled(L(Empty_FilterAndSearch), state.searchBuffer);
-        } else if (_hasFilt) {
-            ImGui::TextDisabled("%s", L(Empty_FilterOnly));
-        } else if (_hasKw) {
-            ImGui::TextDisabled(L(Empty_SearchOnly), state.searchBuffer);
-            ImGui::TextDisabled("%s", L(Search_NoResultTips));
-        } else {
-            ImGui::TextDisabled("%s", L(Empty_NoResults));
-        }
-        ImGui::EndChild();
     }
 
     // F-034 Relink: merge background candidate results + render inline banner
@@ -45920,7 +45870,7 @@ void RenderUI(AppState& state) {
             kTitleText);
 
 // 标题栏右上角：编辑元数据图标按钮
-        drawFileInfoTitleActions(state, rightShell, dl);
+        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl);
 
         // Right-click menu on title bar (remaining area)
         ImGui::SetCursorPos(ImVec2(rightShell.insetL, rightShell.insetT));
@@ -51025,9 +50975,11 @@ void RenderUI(AppState& state) {
         const float labelWidth = ImGui::CalcTextSize(window->Name, nullptr, true).x + 16.0f;
         const ImRect label(title.Min, ImVec2(
             (std::min)(title.Min.x + labelWidth, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
+        const float infoActionsWidth = std::strcmp(moduleId, "info") == 0
+            ? 48.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-48.0f) : 0.0f;
         const ImRect dockDragLabel(title.Min, ImVec2(
-            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
-        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered());
+            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f - infoActionsWidth), title.Max.y));
+        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered() && dockDragLabel.Contains(ImGui::GetMousePos()));
 #if ARIS_PREVIEW_ISOLATION && AURA_BUILD_DIAGNOSTICS && !AURA_INTERNAL_BETA
         RecordDockQaPanel(moduleId, panel, pos, size, title, label);
 #endif
@@ -51314,6 +51266,7 @@ void RenderUI(AppState& state) {
             if (ImGuiViewport* vp = ImGui::GetWindowViewport()) {
                 aura::ui::dock::BindNativeCaptionModule(vp->PlatformHandle, "info");
             }
+            drawFloatingInfoTitleActions();
             driveFloatingDockDrag("info", state.panelFileInfo, pos, size);
 
             if (ImGui::BeginPopupContextItem("##FloatFileInfoMenu")) {
@@ -51502,7 +51455,7 @@ void RenderUI(AppState& state) {
                 const DockModuleShellLayout shell = drawDockModuleShell(
                     ImGui::GetWindowDrawList(), pos, size.x, size.y,
                     L(View_InfoPanel), bodyBg, kTitleText);
-                drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
                 ImGui::SetCursorPos(ImVec2(shell.insetL, shell.insetT));
                 ImGui::InvisibleButton("##DockedFileInfoTitleBar",
                     ImVec2((std::max)(1.0f, shell.shellWidth - kInfoTitleActionsWidth), shell.titleHeight));
@@ -52256,6 +52209,7 @@ void RenderUI(AppState& state) {
         const bool detachedInfoVisible = beginSharedDockWindowHost(
             L(Panel_FileInfoTitle), &state.fileInfoDetached, ImGuiWindowFlags_MenuBar);
         if (detachedInfoVisible) {
+            drawFloatingInfoTitleActions();
             if (ImGui::BeginMenuBar()) {
                 if (ImGui::BeginMenu(L(Menu_DockTo))) {
                     if (ImGui::MenuItem(L(Panel_DockToLeft))) {
