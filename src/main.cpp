@@ -134,6 +134,7 @@
 #include "ui/CoreWorkspaceStyle.h"
 #include "ui/ModuleWindowShell.h"
 #include "CoverWallPageResultBuilder.h"
+#include "CoverWallSelectionKey.h"
 #include "CoverWallFacetRefreshPolicy.h"
 #include "CoverWallCachePolicy.h"
 #include "CoverWallTextureMirrorPolicy.h"
@@ -968,7 +969,7 @@ using aura::cover_wall::SanitizeCoverWallItemsForCache;
 using aura::cover_wall::BuildCoverWallItemsFromCachedKeys;
 using aura::cover_wall::BuildCoverWallItemsFromSearchResultsFallback;
 using aura::cover_wall::ConvertCoverWallEntryToItem;
-using aura::cover_wall::BuildCoverWallVisualDedupeToken;
+using aura::cover_wall::AppendUniqueCoverWallPageItems;
 using aura::cover_wall::BuildCoverWallPageLoadResult;
 using aura::cover_wall::BuildCoverWallLoadResultFromEntries;
 using aura::cover_wall::LoadGlobalCoverWallPage;
@@ -17276,7 +17277,6 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ARTWORK_WALL_ITEM")) {
                         if (payload->Data && payload->DataSize > 0) {
                             std::string key((const char*)payload->Data);
-                            auto fileIds = state.database.getFileIdsForCoverTileMembership(key);
                             playlistChanged = AddCoverTileMembershipToPlaylist(
                                 state, pl.id, pl.name, key, "sidebar-cover-drag");
                         }
@@ -18755,20 +18755,7 @@ void RenderFileInfoPanelTabContents(
                     } else if (!staleEntriesView) {
                     SanitizeCoverWallItemsForCache(page.items);
                     if (wasLoadingNextPage) {
-                        std::unordered_set<std::string> existingTokens;
-                        existingTokens.reserve(cw.items.size() + page.items.size());
-                        for (const auto& it : cw.items) {
-                            existingTokens.insert(BuildCoverWallVisualDedupeToken(it));
-                        }
-                        for (auto& item : page.items) {
-                            const std::string dedupeToken =
-                                BuildCoverWallVisualDedupeToken(item);
-                            if (!item.key.empty() &&
-                                !dedupeToken.empty() &&
-                                existingTokens.insert(dedupeToken).second) {
-                                cw.items.push_back(std::move(item));
-                            }
-                        }
+                        AppendUniqueCoverWallPageItems(cw.items, page.items);
                     } else {
                         cw.items = std::move(page.items);
                     }
@@ -18898,6 +18885,9 @@ void RenderFileInfoPanelTabContents(
                     setDisplayItems(&cw.items, CoverWallSource::Global);
                 }
 
+                globalPageLoadingWithoutStableItems =
+                    (cw.loading || cw.entriesInFlight || cw.foldersInFlight || cw.preloadInFlight) &&
+                    (!pDisplayItems || pDisplayItems->empty());
                 // Refresh the cover-wall load-state text.
                 }
             }
@@ -18946,15 +18936,21 @@ void RenderFileInfoPanelTabContents(
                 state.coverFilterActive &&
                 !state.coverFilterPath.empty()) {
                 CoverModule::CoverItem ci;
+                std::vector<std::string> selectedKeys;
+                const bool exactSelection = aura::cover_wall::DecodeCoverWallSelectionKey(
+                    state.coverFilterPath, selectedKeys);
+                const std::string selectedTileKey = exactSelection
+                    ? selectedKeys.front() : state.coverFilterPath;
                 if (UseReplacementCoverWallIntegratedMode(state) &&
                     !cw.pinnedCoverFilterItem.key.empty() &&
-                    cw.pinnedCoverFilterItem.key == state.coverFilterPath) {
+                    (cw.pinnedCoverFilterItem.key == state.coverFilterPath ||
+                     cw.pinnedCoverFilterItem.wallSelectionKey == state.coverFilterPath)) {
                     ci = cw.pinnedCoverFilterItem;
                 } else {
                     auto findByKey = [&](const std::vector<CoverModule::CoverItem>* src) -> const CoverModule::CoverItem* {
                         if (!src) return nullptr;
                         for (const auto& it : *src) {
-                            if (it.key == state.coverFilterPath) return &it;
+                            if (it.key == selectedTileKey) return &it;
                         }
                         return nullptr;
                     };
@@ -18965,11 +18961,12 @@ void RenderFileInfoPanelTabContents(
                     if (found) {
                         ci = *found;
                     } else {
-                        ci.key = state.coverFilterPath;
+                        ci.key = selectedTileKey;
                         ci.kind = CoverModule::CoverKind::FolderCover;
-                        ci.label = BaseNameFromUtf8Path(state.coverFilterPath);
+                        ci.label = BaseNameFromUtf8Path(selectedTileKey);
                     }
                 }
+                ci.wallSelectionKey = state.coverFilterPath;
                 ci.hitCount = (int64_t)state.searchResults.size();
                 coverFilterPinned.push_back(std::move(ci));
                 pDisplayItems = &coverFilterPinned;
@@ -19681,7 +19678,14 @@ void RenderFileInfoPanelTabContents(
                                 ImGui::SetCursorScreenPos(cellScreenPos);
                                 if (ImGui::InvisibleButton("##ArtHit", ImVec2(thumb, thumb))) {
                                     auto t0 = std::chrono::steady_clock::now();
-                                    if (item.key.rfind("?|", 0) == 0) {
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    if (item.key.rfind("?|", 0) == 0 && item.wallMemberKeys.size() <= 1) {
                                         state.folderFilterActive = true;
                                         // T2.6: cover wall art click 入口 canonical
                                         state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(item.folderPathUtf8);
@@ -19690,15 +19694,15 @@ void RenderFileInfoPanelTabContents(
                                         state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                     } else {
                                         // Query without a folder boundary for this identity.
-                                        if (state.coverFilterActive && state.coverFilterPath == item.key) {
+                                        if (state.coverFilterActive && state.coverFilterPath == selectionKey) {
                                             state.coverFilterActive = false;
                                             state.coverFilterPath.clear();
                                             state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                         } else {
                                             state.coverFilterActive = true;
-                                            state.coverFilterPath = item.key;
+                                            state.coverFilterPath = selectionKey;
                                             if (state.database.isOpen()) {
-                                                (void)state.database.getFileIdsForCoverTileMembership(item.key);
+                                                (void)state.database.getFileIdsForCoverTileMembership(selectionKey);
                                             }
                                             // Snapshot the clicked item so the render-time
                                             // "narrow wall to active cover" override always
@@ -19709,6 +19713,7 @@ void RenderFileInfoPanelTabContents(
                                             // collapses to "0 个封面".
                                             if (UseReplacementCoverWallIntegratedMode(state)) {
                                                 state.coverWall.pinnedCoverFilterItem = item;
+                                                state.coverWall.pinnedCoverFilterItem.wallSelectionKey = selectionKey;
                                             } else {
                                                 state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                             }
@@ -19740,7 +19745,14 @@ void RenderFileInfoPanelTabContents(
 
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                                     MaybePausePlaybackOnInScopeDragStart();
-                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", item.key.c_str(), (int)(item.key.size() + 1));
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", selectionKey.c_str(), (int)(selectionKey.size() + 1));
                                     ImGui::Text(L(Main_CategorizeCoverAllFmt), item.label.c_str());
                                     ImGui::EndDragDropSource();
                                 }
