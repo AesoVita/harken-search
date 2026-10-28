@@ -25554,13 +25554,18 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     }
 
     const float modeLeft = pos.x + width - statusWidth;
-    const auto navyMode = MistBlueChrome::EqState(theme, transportSurface, settings.enabled, modeHit, modeHit && held);
+    const auto navyMode = MistBlueChrome::EqModeState(theme, transportSurface, settings.enabled,
+        settings.mode == MagicEQMode::Notch, modeHit, modeHit && held);
     const ImVec4 modeBackground = navyStateContrast ? navyMode.button : TransportContrast::Over(
         ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
     draw->AddRectFilled(ImVec2(modeLeft + 1.0f, pos.y + 4.0f),
                         ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
                         navyStateContrast ? ImGui::GetColorU32(modeBackground) : ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    settings.enabled ? 0.16f : 0.10f)), 4.0f);
+    if (navyStateContrast && settings.enabled && settings.mode == MagicEQMode::Pass)
+        draw->AddRect(ImVec2(modeLeft + 1.0f, pos.y + 4.0f),
+                      ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
+                      ImGui::GetColorU32(theme.chromeBorder), 4.0f);
     const ImU32 modeInk = navyStateContrast ? ImGui::GetColorU32(navyMode.ink) : ImGui::GetColorU32(TransportContrast::ForSurface(
         settings.enabled ? statusColor : ImGui::ColorConvertU32ToFloat4(muted), modeBackground, 4.7));
     const char* modeLabel = GetMagicEQModeLabel(settings.enabled, static_cast<int>(settings.mode));

@@ -19,6 +19,21 @@ inline EqStateColors EqState(const ThemeColorScheme& s, ImVec4 surface,
     signal = TransportContrast::Over(TransportContrast::ForSurface(signal, surface, 3.2), surface);
     return {button, ink, signal};
 }
+inline EqStateColors EqModeState(const ThemeColorScheme& s, ImVec4 surface,
+                                bool enabled, bool notch, bool hovered = false, bool pressed = false) {
+    if (!enabled) return EqState(s, surface, false, hovered, pressed);
+    const auto mix = [](ImVec4 a, ImVec4 b, float t) {
+        return ImVec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.z+(b.z-a.z)*t, 1);
+    };
+    // Pass stays in the navy family; Notch carries the pale blue accent.
+    // The mode distinction is independent of the EQ power switch.
+    const ImVec4 button = notch
+        ? (pressed ? mix(s.controlAccent, surface, .12f)
+                   : mix(s.controlAccent, s.interfaceText, hovered ? .10f : 0.f))
+        : mix(s.modeCapsuleBG, s.interfaceText, pressed ? .10f : (hovered ? .14f : 0.f));
+    const ImVec4 ink = TransportContrast::ForSurface(notch ? surface : s.interfaceText, button, 4.7);
+    return {button, ink, notch ? s.controlAccent : s.chromeBorder};
+}
 struct ControlSurfaces { ImVec4 normal, hovered, active, title, muted; };
 inline ControlSurfaces Controls(const ThemeColorScheme& s) {
     return {s.frameBgBase, s.resultsTabHover, s.modeCapsuleActiveBG,
