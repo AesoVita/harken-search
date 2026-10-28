@@ -8168,6 +8168,10 @@ if(WIN32)
 endif()
 
 add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoEditSession tests/test_info_edit_session.cpp)
+target_include_directories(TestInfoEditSession PRIVATE src)
+add_test(NAME InfoEditSession COMMAND TestInfoEditSession)
+aura_set_test_labels(InfoEditSession ui info)
 add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
     thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
     thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)

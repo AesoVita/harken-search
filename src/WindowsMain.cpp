@@ -40,6 +40,7 @@
 #endif
 
 #include "AppState.h"
+#include "FileInfoPanel.h"
 #include "Version.h"
 #include "RelinkWorkflow.h"
 #include "update/HarkenSearchUpdateComposition.h"
@@ -4396,7 +4397,7 @@ static void PollQaCommandFile(AppState& state) {
         }
 
 #if ARIS_PREVIEW_ISOLATION
-    } else if (cmd == "info_page_state" || cmd == "info_page_pointer" || cmd == "info_page_layout") {
+    } else if (cmd == "info_page_state" || cmd == "info_page_pointer" || cmd == "info_page_layout" || cmd == "info_edit_input") {
         // Real ImGui input, restricted to this compile-time isolated QA package.
         // Never moves the operating-system cursor or targets another process.
         if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire)) {
@@ -4404,7 +4405,13 @@ static void PollQaCommandFile(AppState& state) {
         } else {
             s_magicEqQaCollectUntilMs.store(Platform::MonotonicMilliseconds()+5000,std::memory_order_release);
             const auto snapshot = ThemeInspector::CopyLatestSnapshot();
-            if (cmd == "info_page_layout") {
+            if (cmd == "info_edit_input") {
+                if (getStr(raw,"action")=="exit") { state.settings.closeButtonAction=2; PostMessageW(g_hwnd,WM_CLOSE,0,0); }
+                else if (getStr(raw,"action")=="escape_down") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,true);
+                else if (getStr(raw,"action")=="escape_up") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,false);
+                else ImGui::GetIO().AddInputCharactersUTF8(getStr(raw,"text").c_str());
+                result=R"({"ok":true})";
+            } else if (cmd == "info_page_layout") {
                 const int width = getInt(raw,"width",320);
                 if (width < 180 || width > 800 || s_magicEqQaPointer.held) {
                     result = R"({"ok":false,"error":"invalid_info_layout"})";
@@ -4442,7 +4449,15 @@ static void PollQaCommandFile(AppState& state) {
                 }
             } else {
                 const auto* infoWindow = ImGui::FindWindowByName("Info##FloatingFileInfo");
+                const auto editedRecord=state.metadataEditFileId>0?state.database.getFileById(state.metadataEditFileId):AudioRecord{};
                 result="{\"ok\":true,\"selected\":"+std::to_string(state.settings.infoPages.selected)+
+                    ",\"editing\":"+(state.infoEditSession.active?"true":"false")+
+                    ",\"awaiting_save\":"+(state.infoEditSession.awaitingChoice?"true":"false")+
+                    ",\"edit_id\":"+std::to_string(state.metadataEditFileId)+
+                    ",\"visible\":"+(state.panelFileInfo.visible?"true":"false")+
+                    ",\"saved_description\":\""+jsonEscape(editedRecord.description)+"\""+
+                    ",\"draft_description\":\""+jsonEscape(state.metadataDescBuffer)+"\""+
+                    ",\"save_error\":\""+jsonEscape(state.infoEditError)+"\""+
                     ",\"visible_mask\":"+std::to_string(state.settings.infoPages.visibleMask)+
                     ",\"floating\":"+(state.panelFileInfo.floating?"true":"false")+
                     ",\"outer_scrollbar\":"+(infoWindow && infoWindow->ScrollbarY?"true":"false")+
@@ -7408,6 +7423,9 @@ void RemoveTrayIconIfAny(HWND hwnd) {
 }
 
 void RequestHarkenSearchExit(HWND hwnd, const wchar_t* reason) {
+    if (g_appState && RequestInfoMetadataLeave(*g_appState,[hwnd] {
+        RequestHarkenSearchExit(hwnd,L"metadata-save-confirmed");
+    })) return;
     static constexpr int kExitSettingsSaveAttempts = 3;
     g_explicitExitRequested.store(true, std::memory_order_release);
     AppendDiagLogF(L"ExitRequested: reason=%s hwnd=%p", reason ? reason : L"(unknown)", (void*)hwnd);
@@ -13194,6 +13212,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 #endif
         DevTools_BeginFramePhase("RenderUI");
         RenderUI(state);
+        GuardInfoMetadataContext(state);
+        RenderInfoMetadataLeavePrompt(state);
 #if AURA_BUILD_DIAGNOSTICS && ARIS_PREVIEW_ISOLATION && !AURA_INTERNAL_BETA
         const double dockTraceRenderUiMs = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - dockTraceRenderStart).count();

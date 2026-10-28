@@ -34,7 +34,7 @@ def run(args):
         end = time.monotonic() + 15
         while time.monotonic() < end:
             current = state()
-            if current['frame'] >= first['frame'] + 3 and current['zones']: return current
+            if current['frame'] >= first['frame'] + 3 and (current['zones'] or not current.get('visible',True)): return current
             time.sleep(.08)
         raise AssertionError(current)
     def click(key):
@@ -86,7 +86,10 @@ def run(args):
             if 'unknown command' not in str(error): raise
         initial=settled()
         checks.append({'case':'startup','state':initial})
-        if args.expect_saved or args.prepare_demo:
+        if args.edit_suite:
+            from qa_info_edit import run_edit_suite
+            run_edit_suite(args, command, settled, click, capture, process, checks)
+        elif args.expect_saved or args.prepare_demo:
             if args.expect_saved:
                 assert initial['selected']==3 and initial['visible_mask']==11, initial
                 capture('reopened')
@@ -174,4 +177,5 @@ if __name__=='__main__':
     parser.add_argument('--output',type=Path,required=True)
     parser.add_argument('--expect-saved',action='store_true')
     parser.add_argument('--prepare-demo',action='store_true')
+    parser.add_argument('--edit-suite',action='store_true')
     run(parser.parse_args())
