@@ -4,6 +4,7 @@
 #include "Database.h"
 #include "AudioEngine.h"
 #include "CoverModule.h"
+#include "CoverWallSelectionKey.h"
 #include "PathUtils.h"
 #include "SimilaritySearch.h"
 #include "Utils.h"
@@ -1127,6 +1128,61 @@ int testGlobalCoverWallPageFollowsCurrentFileListOrder() {
     return failures;
 }
 
+int testFolderCoverFacetsKeepDistinctSimilarArtworks() {
+    printSeparator("Test: folder cover wall keeps distinct similar artwork files");
+    const std::string dbPath = "test_folder_cover_distinct_similar.db";
+    removeDbFamily(dbPath);
+    Database db;
+    if (!db.open(dbPath)) return 1;
+
+    const std::string firstKey = "F|H|0000000000000001|100";
+    const std::string secondKey = "F|H|0000000000000002|100";
+    auto add = [&](const std::string& name, const std::string& folder, const std::string& key) {
+        AudioRecord record;
+        record.filePath = folder + "/" + name;
+        record.fileName = name;
+        record.folderPath = HarkenSearch::CanonicalFolderPath(folder);
+        record.extension = ".wav";
+        record.format = "WAV";
+        record.hasCover = true;
+        record.folderCoverKey = key;
+        return db.addFile(record);
+    };
+    const bool seeded =
+        add("one.wav", "C:/library/media/Album_01", firstKey) &&
+        add("two.wav", "C:/library/media/Album_01", firstKey) &&
+        add("three.wav", "C:/library/media/Album_02", secondKey) &&
+        sqlite3_exec(db.db(), R"SQL(
+            INSERT OR REPLACE INTO cover_cache_registry
+                (cover_key, rep_path, is_embedded, normalized_key, cover_phash)
+            VALUES
+                ('F|H|0000000000000001|100', 'c:\library\media\album_01', 0,
+                 'F|H|0000000000000001|100', 12345),
+                ('F|H|0000000000000002|100', 'c:\library\media\album_02', 0,
+                 'F|H|0000000000000002|100', 12345);
+        )SQL", nullptr, nullptr, nullptr) == SQLITE_OK;
+    SearchFilter parent;
+    parent.folderPath = HarkenSearch::CanonicalFolderPath("C:/library/media");
+    SearchFilter album;
+    album.folderPath = HarkenSearch::CanonicalFolderPath("C:/library/media/Album_01");
+    const auto parentFiles = db.searchFiles(parent, 10, 0);
+    const auto parentCovers = db.getCoverFacets(parent, 10);
+    const auto cachedParentCovers = db.getCoverFacets(parent, 10);
+    const auto albumFiles = db.searchFiles(album, 10, 0);
+    const auto albumCovers = db.getCoverFacets(album, 10);
+    const bool ok = seeded && parentFiles.size() == 3 && parentCovers.size() == 2 &&
+                    cachedParentCovers.size() == 2 &&
+                    albumFiles.size() == 2 && albumCovers.size() == 1;
+    std::cout << (ok ? "PASS" : "FAIL")
+              << ": parent files=" << parentFiles.size()
+              << " covers=" << parentCovers.size()
+              << "; album files=" << albumFiles.size()
+              << " covers=" << albumCovers.size() << "\n";
+    db.close();
+    removeDbFamily(dbPath);
+    return ok ? 0 : 1;
+}
+
 int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
     printSeparator("Test: large cover wall follows file list and continues after 50000 rows");
 
@@ -1139,6 +1195,38 @@ int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
         db.close();
         removeDbFamily(dbPath);
         return 1;
+    }
+    const auto denseStart = std::chrono::steady_clock::now();
+    const auto densePage = db.getGlobalCoverWallEntriesPage({}, 512, true);
+    const auto denseElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - denseStart).count();
+    const bool denseOk = densePage.largeLibrary && densePage.entries.size() == 512 &&
+        denseElapsed < 5000;
+    std::cout << (denseOk ? "PASS" : "FAIL")
+              << ": dense first cover page loads promptly; rows="
+              << densePage.entries.size() << " elapsed_ms=" << denseElapsed
+              << " error=" << db.getLastError() << "\n";
+    if (!denseOk) ++failures;
+    if (sqlite3_exec(db.db(),
+            "UPDATE audio_files SET embedded_cover_key='E|shared' WHERE id <= 49000;",
+            nullptr, nullptr, nullptr) != SQLITE_OK) {
+        ++failures;
+    } else {
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        sqlite3_progress_handler(db.db(), 10000, [](void* context) -> int {
+            const auto* end = static_cast<const std::chrono::steady_clock::time_point*>(context);
+            return std::chrono::steady_clock::now() >= *end ? 1 : 0;
+        }, &deadline);
+        const auto repeatedStart = std::chrono::steady_clock::now();
+        const auto repeatedPage = db.getGlobalCoverWallEntriesPage({}, 2, true);
+        const auto repeatedElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - repeatedStart).count();
+        sqlite3_progress_handler(db.db(), 0, nullptr, nullptr);
+        const bool repeatedOk = repeatedPage.entries.size() == 2 && repeatedElapsed < 5000;
+        std::cout << (repeatedOk ? "PASS" : "FAIL")
+                  << ": repeated cover keys do not stall global page; rows="
+                  << repeatedPage.entries.size() << " elapsed_ms=" << repeatedElapsed << "\n";
+        if (!repeatedOk) ++failures;
     }
     const char* fixtureSql =
         "UPDATE audio_files SET has_cover=0, embedded_cover_key='' "
@@ -1186,6 +1274,17 @@ int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
                   << second.entries.size() << "\n";
         if (!secondOk) ++failures;
     }
+    const std::string visualSelection =
+        aura::cover_wall::EncodeExactCoverWallKey("E|visual_late");
+    const auto aliasIds = db.getFileIdsForCoverTileMembership(visualSelection);
+    SearchFilter aliasFilter;
+    aliasFilter.specificCoverKey = visualSelection;
+    const auto aliasCount = db.searchFilesCount(aliasFilter);
+    const bool aliasOk = aliasIds.size() == 1 && aliasCount == 1;
+    std::cout << (aliasOk ? "PASS" : "FAIL")
+              << ": normalized visual key resolves its stored raw membership; ids="
+              << aliasIds.size() << " count=" << aliasCount << "\n";
+    if (!aliasOk) ++failures;
     db.close();
     removeDbFamily(dbPath);
     return failures;
@@ -2655,6 +2754,84 @@ int testTemporaryCoverIdentityReverseLookupMatchesCoverFilter() {
               << ": temporary folder identity cover filter matches tile membership semantics\n";
     if (!coverFilterMatchesTileMembership) ++failures;
 
+    db.close();
+    removeDbFamily(dbPath);
+    return failures;
+}
+
+int testCoverWallGroupedSelectionIncludesAllFoldersWithoutFuzzyNeighbors() {
+    printSeparator("Test: grouped cover wall selection uses exact member identities");
+    const std::string dbPath = "test_cover_wall_grouped_selection.db";
+    removeDbFamily(dbPath);
+    Database db;
+    if (!db.open(dbPath)) return 1;
+    const std::string keyA = CoverModule::CanonicalCoverKey("F|PATH|C:/covers/shared.jpg");
+    const std::string keyB = CoverModule::CanonicalCoverKey("F|PATH|C:/covers/near.jpg");
+    int failures = 0;
+    auto add = [&](const std::string& folder, const std::string& name, const std::string& key) {
+        AudioRecord r;
+        r.filePath = folder + "/" + name;
+        r.fileName = name;
+        r.folderPath = folder;
+        r.extension = ".wav";
+        r.format = "WAV";
+        r.channels = 2;
+        r.sampleRate = 48000;
+        r.bitDepth = 24;
+        r.durationSeconds = 1.0f;
+        r.fileSize = 1024;
+        r.totalFrames = 48000;
+        r.hasCover = true;
+        r.folderCoverKey = key;
+        if (!key.empty()) r.folderCoverSrcPath = key.substr(7);
+        if (!db.addFile(r)) ++failures;
+    };
+    add("C:/lib/wall-group/a", "a.wav", "");
+    add("C:/lib/wall-group/b", "b.wav", "");
+    add("C:/lib/wall-group/c", "c.wav", keyA);
+    add("C:/lib/wall-group/d", "d.wav", keyB);
+    std::ostringstream registrySql;
+    registrySql << "INSERT OR REPLACE INTO cover_cache_registry "
+        "(cover_key, rep_path, is_embedded, normalized_key, cover_phash, cover_phash_version) VALUES "
+        "('" << keyA << "', 'C:/lib/wall-group/c', 0, 'PHASH|12345', 12345, 2), "
+        "('" << keyB << "', 'C:/lib/wall-group/d', 0, 'PHASH|12345', 12345, 2);";
+    if (sqlite3_exec(db.db(), registrySql.str().c_str(), nullptr, nullptr, nullptr) != SQLITE_OK) ++failures;
+    const std::string group = aura::cover_wall::EncodeGroupedCoverWallKeys({
+        "?|C:/lib/wall-group/a", "?|C:/lib/wall-group/b", keyA});
+    std::vector<std::string> decoded;
+    if (!aura::cover_wall::DecodeCoverWallSelectionKey(group, decoded) || decoded.size() != 3) ++failures;
+    const auto ids = db.getFileIdsForCoverTileMembership(group);
+    SearchFilter filter;
+    filter.specificCoverKey = group;
+    const auto groupCount = db.searchFilesCount(filter);
+    const auto groupRows = db.searchFiles(filter, 10, 0).size();
+    std::cout << "group ids=" << ids.size() << " count=" << groupCount
+              << " rows=" << groupRows << '\n';
+    if (ids.size() != 3 || groupCount != 3 || groupRows != 3) ++failures;
+    const std::string exact = aura::cover_wall::EncodeExactCoverWallKey(keyA);
+    filter.specificCoverKey = exact;
+    const auto exactIds = db.getFileIdsForCoverTileMembership(exact).size();
+    const auto exactCount = db.searchFilesCount(filter);
+    std::cout << "exact ids=" << exactIds << " count=" << exactCount << '\n';
+    if (exactIds != 1 || exactCount != 1) ++failures;
+    sqlite3_stmt* deleteMembership = nullptr;
+    if (sqlite3_prepare_v2(db.db(),
+                           "DELETE FROM cover_tile_membership WHERE tile_key = ?",
+                           -1, &deleteMembership, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(deleteMembership, 1, keyB.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(deleteMembership) != SQLITE_DONE) ++failures;
+    } else {
+        ++failures;
+    }
+    if (deleteMembership) sqlite3_finalize(deleteMembership);
+    const std::string partlyIndexed =
+        aura::cover_wall::EncodeGroupedCoverWallKeys({keyA, keyB});
+    filter.specificCoverKey = partlyIndexed;
+    const auto repairedIds = db.getFileIdsForCoverTileMembership(partlyIndexed);
+    const auto repairedCount = db.searchFilesCount(filter);
+    std::cout << "partial index group ids=" << repairedIds.size()
+              << " count=" << repairedCount << '\n';
+    if (repairedIds.size() != 2 || repairedCount != 2) ++failures;
     db.close();
     removeDbFamily(dbPath);
     return failures;
@@ -5104,6 +5281,7 @@ int main(int argc, char* argv[]) {
         std::free(focusedCaseRaw);
         if (focused == "cover_tile_membership") {
             int focusedFailures = 0;
+            focusedFailures += testCoverWallGroupedSelectionIncludesAllFoldersWithoutFuzzyNeighbors();
             focusedFailures += testTemporaryCoverIdentityReverseLookupMatchesCoverFilter();
             focusedFailures += testCoverTileMembershipUsesEquivalentRegistryKeys();
             focusedFailures += testCoverClickPhashLookupPreservesHammingTwoCluster();
@@ -5168,6 +5346,9 @@ int main(int argc, char* argv[]) {
             focusedFailures += testSmallCoverWallSameFilenamePageCursorDoesNotSkipOrRepeat();
             return focusedFailures == 0 ? 0 : 1;
         }
+        if (focused == "folder_cover_distinct_similar") {
+            return testFolderCoverFacetsKeepDistinctSimilarArtworks();
+        }
         if (focused == "cover_wall_page_cursor") {
             return testGlobalCoverWallPageApiUsesStableCursor() == 0 ? 0 : 1;
         }
@@ -5189,6 +5370,7 @@ int main(int argc, char* argv[]) {
     int coverWallFileListOrderFailures = testGlobalCoverWallPageFollowsCurrentFileListOrder();
     coverWallFileListOrderFailures += testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows();
     int sameFilenameCoverWallPageFailures = testSmallCoverWallSameFilenamePageCursorDoesNotSkipOrRepeat();
+    int folderCoverDistinctFailures = testFolderCoverFacetsKeepDistinctSimilarArtworks();
     int largeCoverFacetFailures = testLargeCoverFacetsUseIncrementalRegistryOnly();
     int largeCoverHotPathFailures = testLargeCoverBrowseHotPathsUseBoundedRegistryHeuristic();
     int searchCountFallbackFailures = testSearchFilesCountMirrorsFtsFallbackContract();
@@ -5239,7 +5421,7 @@ int main(int argc, char* argv[]) {
         coverWallPageFailures == 0 && coverWallSparsePageFailures == 0 &&
         smallCoverWallPageFailures == 0 &&
         coverWallFileListOrderFailures == 0 &&
-        sameFilenameCoverWallPageFailures == 0 &&
+        sameFilenameCoverWallPageFailures == 0 && folderCoverDistinctFailures == 0 &&
         largeCoverFacetFailures == 0 && largeCoverHotPathFailures == 0 &&
         searchCountFallbackFailures == 0 &&
         zeroFilteredCountCacheFailures == 0 &&
@@ -5290,6 +5472,7 @@ int main(int argc, char* argv[]) {
     std::cerr << "CoverWallPageSmallFallback: " << smallCoverWallPageFailures << " assertion(s) failed.\n";
     std::cerr << "CoverWallPageFileListOrder: " << coverWallFileListOrderFailures << " assertion(s) failed.\n";
     std::cerr << "CoverWallPageSameFilenameCursor: " << sameFilenameCoverWallPageFailures << " assertion(s) failed.\n";
+    std::cerr << "FolderCoverDistinctSimilar: " << folderCoverDistinctFailures << " assertion(s) failed.\n";
     std::cerr << "LargeCoverFacetIncremental: " << largeCoverFacetFailures << " assertion(s) failed.\n";
     std::cerr << "LargeCoverHotPathBoundedness: " << largeCoverHotPathFailures << " assertion(s) failed.\n";
     std::cerr << "SearchCountFtsFallback: " << searchCountFallbackFailures << " assertion(s) failed.\n";

@@ -134,6 +134,7 @@
 #include "ui/CoreWorkspaceStyle.h"
 #include "ui/ModuleWindowShell.h"
 #include "CoverWallPageResultBuilder.h"
+#include "CoverWallSelectionKey.h"
 #include "CoverWallFacetRefreshPolicy.h"
 #include "CoverWallCachePolicy.h"
 #include "CoverWallTextureMirrorPolicy.h"
@@ -948,7 +949,8 @@ SwitchDatabase(AppState& state,
                bool allowCreate = false,
                std::string* outImmediateError = nullptr,
                int initialWaveformCacheMode = -1,
-               bool overwriteExisting = false);
+               bool overwriteExisting = false,
+               std::function<void(bool, const std::string&)> afterDeferredStart = {});
 static bool SidebarRefreshGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_busy = false);
 static bool SidebarClearAllGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_emphasized = false);
 bool HorizontalSplitter(const char* id, float* panelHeight, float minHeight = 50.0f, float maxHeight = 500.0f, float width = 0.0f, bool growWhenDraggingDown = false);
@@ -968,7 +970,7 @@ using aura::cover_wall::SanitizeCoverWallItemsForCache;
 using aura::cover_wall::BuildCoverWallItemsFromCachedKeys;
 using aura::cover_wall::BuildCoverWallItemsFromSearchResultsFallback;
 using aura::cover_wall::ConvertCoverWallEntryToItem;
-using aura::cover_wall::BuildCoverWallVisualDedupeToken;
+using aura::cover_wall::AppendUniqueCoverWallPageItems;
 using aura::cover_wall::BuildCoverWallPageLoadResult;
 using aura::cover_wall::BuildCoverWallLoadResultFromEntries;
 using aura::cover_wall::LoadGlobalCoverWallPage;
@@ -10575,12 +10577,58 @@ void PumpDatabaseSwitchIfPending(AppState& state) {
 // 主线程仅做必须主线程的事（GPU 资源 + 轻量 state 清理 + 设置 in-progress 标志），
 // 全部可能阻塞的 teardown（scanner/searchWorker/waveformWorker/database.close）和
 // database.open 一起放到后台线程，避免大库切换时主线程被 join 卡数十秒。
+static InfoEditValues CurrentInfoEditValues(const AppState& state) {
+    return {state.metadataDescBuffer,state.metadataKeywordsBuffer,state.metadataCategoryBuffer};
+}
+
+bool RequestInfoMetadataLeave(AppState& state, std::function<void()> afterLeave) {
+    if (!state.infoEditSession.active) return false;
+    const bool alreadyPending=state.infoEditSession.awaitingChoice;
+    if (!state.infoEditSession.RequestLeave(CurrentInfoEditValues(state))) {
+        state.metadataEditMode=false;
+        state.metadataBatchMode=false;
+        state.metadataBatchIds.clear();
+        state.infoEditRecords.clear();
+        return false;
+    }
+    if (!alreadyPending) state.infoEditAfterLeave=std::move(afterLeave);
+    return true;
+}
+
+void GuardInfoMetadataContext(AppState& state) {
+    if (!state.infoEditSession.active) return;
+    int64_t selectedId=state.currentFileId;
+    if (state.selectedResultIndex>=0 && state.selectedResultIndex<(int)state.searchResults.size())
+        selectedId=state.searchResults[state.selectedResultIndex].id;
+    const bool leaving = selectedId!=state.infoEditSelectionId ||
+        state.viewMode==ViewMode::Browser || !state.panelFileInfo.visible ||
+        state.settings.infoPages.selected!=0 || !state.settings.infoPages.IsVisible(InfoPage::Metadata,true);
+    if (leaving && !state.infoEditSession.awaitingChoice) {
+        const bool visible=state.panelFileInfo.visible;
+        const auto pages=state.settings.infoPages;
+        RequestInfoMetadataLeave(state,[&state,visible,pages] {
+            state.panelFileInfo.visible=visible; state.settings.infoPages=pages; state.settingsDirty=true;
+        });
+    }
+    if (state.infoEditSession.awaitingChoice) {
+        state.panelFileInfo.visible=true;
+        state.settings.infoPages.visibleMask=state.infoEditVisibleMask;
+        state.settings.infoPages.selected=0;
+    }
+}
+
 static bool SwitchDatabase(AppState& state,
                            const std::string& newDbPathUtf8,
                            bool allowCreate,
                            std::string* outImmediateError,
                            int initialWaveformCacheMode,
-                           bool overwriteExisting) {
+                           bool overwriteExisting,
+                           std::function<void(bool, const std::string&)> afterDeferredStart) {
+    if (RequestInfoMetadataLeave(state,[&state,newDbPathUtf8,allowCreate,initialWaveformCacheMode,overwriteExisting,afterDeferredStart=std::move(afterDeferredStart)] {
+        std::string error;
+        const bool started=SwitchDatabase(state,newDbPathUtf8,allowCreate,&error,initialWaveformCacheMode,overwriteExisting);
+        if(afterDeferredStart) afterDeferredStart(started,error);
+    })) return false;
     const std::string effectiveDbPathUtf8 = newDbPathUtf8.empty()
         ? std::string()
         : ResolveCanonicalHarkenSearchDatabasePathUtf8(newDbPathUtf8);
@@ -17246,7 +17294,6 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ARTWORK_WALL_ITEM")) {
                         if (payload->Data && payload->DataSize > 0) {
                             std::string key((const char*)payload->Data);
-                            auto fileIds = state.database.getFileIdsForCoverTileMembership(key);
                             playlistChanged = AddCoverTileMembershipToPlaylist(
                                 state, pl.id, pl.name, key, "sidebar-cover-drag");
                         }
@@ -17388,6 +17435,91 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 
 // SECTION 9 - File Info Panel
 
+static void BeginInfoMetadataEdit(AppState& state, const AudioRecord& record) {
+    if (record.id<=0 || state.infoEditSession.active || state.dbSwitchInProgress) return;
+    state.infoEditRecords.clear();
+    if (state.selectedIndicesSet.size()>1) {
+        for (int i:state.selectedIndicesSet)
+            if(i>=0 && i<(int)state.searchResults.size()) state.infoEditRecords.push_back(state.searchResults[i]);
+    }
+    if (state.infoEditRecords.empty()) state.infoEditRecords.push_back(record);
+    state.metadataBatchMode=state.infoEditRecords.size()>1;
+    state.metadataBatchIds.clear();
+    for (const auto& item:state.infoEditRecords) state.metadataBatchIds.push_back(item.id);
+    state.metadataEditFileId=record.id;
+    state.infoEditSelectionId=record.id;
+    state.infoEditDatabasePath=state.database.getMainDbPath();
+    state.infoEditVisibleMask=state.settings.infoPages.visibleMask;
+    strncpy_s(state.metadataDescBuffer,sizeof(state.metadataDescBuffer),state.metadataBatchMode?"":record.description.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataKeywordsBuffer,sizeof(state.metadataKeywordsBuffer),state.metadataBatchMode?"":record.keywords.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataCategoryBuffer,sizeof(state.metadataCategoryBuffer),state.metadataBatchMode?"":record.category.c_str(),_TRUNCATE);
+    state.infoEditSession.Begin(CurrentInfoEditValues(state));
+    state.infoEditError.clear();
+    state.infoEditAfterLeave={};
+    state.metadataEditMode=true;
+}
+
+static bool SaveInfoMetadataDraft(AppState& state) {
+    if (state.database.getMainDbPath()!=state.infoEditDatabasePath || state.infoEditRecords.empty()) return false;
+    const auto values=CurrentInfoEditValues(state);
+    const auto& old=state.infoEditSession.original;
+    const bool desc=values.description!=old.description, keys=values.keywords!=old.keywords, cat=values.category!=old.category;
+    MetadataEditPatch patch;
+    if(desc) patch.setDescription(values.description);
+    if(keys) patch.setKeywords(values.keywords);
+    if(cat) patch.setCategory(values.category);
+    auto undo=std::make_unique<MetadataPatchOp>();
+    undo->operationName=state.metadataBatchMode?"Batch edit metadata":"Edit metadata";
+    std::vector<int64_t> ids;
+    for(const auto& original:state.infoEditRecords) {
+        // Resolve by the captured identity, never by the new selection.
+        const auto current=state.database.getFileById(original.id);
+        if(current.id!=original.id || current.filePath!=original.filePath ||
+           !Platform::FileSystem::Exists(original.filePath)) return false;
+        MetadataPatchEntry entry; entry.fileId=original.id;
+        if(desc) { entry.oldValues["description"]=current.description; entry.newValues["description"]=values.description; }
+        if(keys) { entry.oldValues["keywords"]=current.keywords; entry.newValues["keywords"]=values.keywords; }
+        if(cat) { entry.oldValues["category"]=current.category; entry.newValues["category"]=values.category; }
+        undo->entries.push_back(std::move(entry)); ids.push_back(original.id);
+    }
+    const auto result=state.database.applyMetadataPatchBatch(ids,patch);
+    if(result.failed || result.success!=(int)ids.size()) return false;
+    state.undoStack.push(std::move(undo));
+    state.database.invalidateFacetQueryCache();
+    g_forceMetaCacheInvalidate=true;
+    RefreshSearchResults(state,false);
+    return true;
+}
+
+void RenderInfoMetadataLeavePrompt(AppState& state) {
+    if (!state.infoEditSession.awaitingChoice) return;
+    const char* title=L(Info_SaveBeforeLeaving);
+    if (!ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
+    bool resolved=false;
+    if (ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(L(Info_SaveBeforeLeavingBody));
+        if (!state.infoEditError.empty()) ImGui::TextWrapped("%s",state.infoEditError.c_str());
+        const bool yes=ImGui::Button(L(Info_SaveYes),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveYes",L(Info_SaveYes),"src/main.cpp");
+        ImGui::SameLine();
+        const bool no=ImGui::Button(L(Info_SaveNo),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveNo",L(Info_SaveNo),"src/main.cpp");
+        if (yes || no) {
+            const bool saved=yes && SaveInfoMetadataDraft(state);
+            resolved=state.infoEditSession.Resolve(yes,saved);
+            if(resolved) ImGui::CloseCurrentPopup();
+            else state.infoEditError=L(Info_SaveFailedKeepEditing);
+        }
+        ImGui::EndPopup();
+    }
+    if (resolved) {
+        state.metadataEditMode=false; state.metadataBatchMode=false; state.metadataBatchIds.clear();
+        state.infoEditRecords.clear(); state.infoEditError.clear();
+        auto after=std::move(state.infoEditAfterLeave); state.infoEditAfterLeave={};
+        if(after) after();
+    }
+}
+
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
@@ -17407,7 +17539,7 @@ void RenderFileInfoPanelTabContents(
         // 其他标签：优先保持当前选中项的稳定布局，不因为异步加载中途掉到 fallback 分支而整块跳动
         // Keep the selected record as a stable display source until audio is ready.
         const int selIndex = state.selectedResultIndex;
-        const bool hasSelectedRecord =
+        bool hasSelectedRecord =
             (state.viewMode != ViewMode::Browser) &&
             (selIndex >= 0) &&
             (selIndex < (int)state.searchResults.size());
@@ -17416,11 +17548,18 @@ void RenderFileInfoPanelTabContents(
             selectedRecord = state.searchResults[(size_t)selIndex];
         }
 
+        if (state.infoEditSession.active && !state.infoEditRecords.empty()) {
+            selectedRecord = state.infoEditRecords.front();
+            for (const auto& item:state.infoEditRecords)
+                if(item.id==state.metadataEditFileId) selectedRecord=item;
+            hasSelectedRecord=true;
+        }
+
         const AudioFileInfo& engineInfo = state.audioEngine.getFileInfo();
         const bool hasEngineInfo = state.audioEngine.isLoaded() && !engineInfo.filePath.empty();
         const bool useSelectedRecordInfo =
             hasSelectedRecord &&
-            (!hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
+            (state.infoEditSession.active || !hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
         bool isAudioValid = hasEngineInfo || useSelectedRecordInfo;
         if (isAudioValid) {
         AudioFileInfo info = engineInfo;
@@ -17460,6 +17599,14 @@ void RenderFileInfoPanelTabContents(
             } else if (useSelectedRecordInfo) {
                 record = selectedRecord;
             }
+
+            const ImVec2 infoOrigin=ImGui::GetWindowPos();
+            const ImVec2 infoSize=ImGui::GetWindowSize();
+            ThemeInspector::RegisterZone(infoOrigin,ImVec2(infoOrigin.x+infoSize.x,infoOrigin.y+infoSize.y),
+                "info.metadataContent",L(Info_MetaSummaryTab),"src/main.cpp");
+            if (hasDb && !state.infoEditSession.active &&
+                ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseDoubleClicked(0))
+                BeginInfoMetadataEdit(state,record);
 
             // Async info-panel IO (metadata + file times + bit depth): avoid UI thread blocking.
             struct InfoPanelAsyncPayload {
@@ -17931,6 +18078,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditDesc", state.metadataDescBuffer, sizeof(state.metadataDescBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.description",L(Info_Description),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17938,6 +18086,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditKeywords", state.metadataKeywordsBuffer, sizeof(state.metadataKeywordsBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.keywords",L(Info_Keywords),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17945,6 +18094,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditCategory", state.metadataCategoryBuffer, sizeof(state.metadataCategoryBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.category",L(Info_Category),"src/main.cpp");
                 } else {
                     // Display mode
                     row(L(Info_Description), desc.empty() ? "-" : desc);
@@ -17984,119 +18134,6 @@ void RenderFileInfoPanelTabContents(
                 }
 
                 ImGui::EndTable();
-            }
-
-            // Metadata edit buttons
-            static std::string s_inlineMetaSaveMsg;
-            static int s_inlineMetaSaveSuccess = 0, s_inlineMetaSaveSkipped = 0, s_inlineMetaSaveFailed = 0;
-            ImGui::Separator();
-            if (hasDb) {
-                bool isEditing = state.metadataEditMode &&
-                    (state.metadataBatchMode ? !state.metadataBatchIds.empty() : state.metadataEditFileId == record.id);
-
-                if (isEditing) {
-                    // Show batch info if in batch mode
-                    if (state.metadataBatchMode) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), L(Info_BatchEditN), (int)state.metadataBatchIds.size());
-                    }
-
-                    // Save / Cancel buttons
-                    if (ImGui::Button(L(Main_SaveChangesBtn), ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 28))) {
-                        s_inlineMetaSaveSuccess = 0;
-                        s_inlineMetaSaveSkipped = 0;
-                        s_inlineMetaSaveFailed = 0;
-                        auto undoOp = std::make_unique<MetadataPatchOp>();
-                        undoOp->operationName = state.metadataBatchMode ? "Batch edit metadata" : "Edit metadata";
-
-                        if (state.metadataBatchMode) {
-                            std::unordered_map<int64_t, const AudioRecord*> recMap;
-                            for (const auto& r : state.searchResults) recMap[r.id] = &r;
-
-                            std::vector<int64_t> applyIds;
-                            MetadataEditPatch patch;
-                            patch.setDescription(state.metadataDescBuffer);
-                            patch.setKeywords(state.metadataKeywordsBuffer);
-                            patch.setCategory(state.metadataCategoryBuffer);
-                            for (int64_t id : state.metadataBatchIds) {
-                                auto it = recMap.find(id);
-                                if (it == recMap.end()) { s_inlineMetaSaveFailed++; continue; }
-                                const AudioRecord* rec = it->second;
-                                if (!Platform::FileSystem::Exists(rec->filePath)) {
-                                    s_inlineMetaSaveSkipped++;
-                                    continue;
-                                }
-                                applyIds.push_back(id);
-                                MetadataPatchEntry entry;
-                                entry.fileId = id;
-                                entry.oldValues = {{"description", rec->description}, {"keywords", rec->keywords}, {"category", rec->category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                            }
-                            if (!applyIds.empty()) {
-                                BatchMetadataApplyResult res = state.database.applyMetadataPatchBatch(applyIds, patch);
-                                if (res.failed == 0) {
-                                    s_inlineMetaSaveSuccess = res.success;
-                                } else {
-                                    s_inlineMetaSaveSuccess = 0;
-                                    s_inlineMetaSaveFailed += (int)applyIds.size();
-                                    undoOp->entries.clear();
-                                }
-                            }
-                        } else {
-                            // Single file
-                            if (!Platform::FileSystem::Exists(record.filePath)) {
-                                s_inlineMetaSaveSkipped = 1;
-                            } else {
-                                MetadataEditPatch patch;
-                                patch.setDescription(state.metadataDescBuffer);
-                                patch.setKeywords(state.metadataKeywordsBuffer);
-                                patch.setCategory(state.metadataCategoryBuffer);
-                                MetadataPatchEntry entry;
-                                entry.fileId = record.id;
-                                entry.oldValues = {{"description", record.description}, {"keywords", record.keywords}, {"category", record.category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                                if (state.database.applyMetadataPatch(record.id, patch)) {
-                                    s_inlineMetaSaveSuccess = 1;
-                                } else {
-                                    s_inlineMetaSaveFailed = 1;
-                                }
-                            }
-                        }
-                        if (s_inlineMetaSaveSuccess > 0) {
-                            state.undoStack.push(std::move(undoOp));
-                            state.database.invalidateFacetQueryCache();
-                            s_cachedMetaFileId = -1; // invalidate to reflect updated values
-                            RefreshSearchResults(state, false);
-                        }
-                        s_inlineMetaSaveMsg = std::to_string(s_inlineMetaSaveSuccess) + u8" 成功";
-                        if (s_inlineMetaSaveSkipped > 0)
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveSkipped) + u8" 跳过（文件不在磁盘上）";
-                        if (s_inlineMetaSaveFailed > 0) {
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveFailed) + u8" 失败";
-                            if (!state.database.getLastError().empty()) {
-                                s_inlineMetaSaveMsg += u8" ";
-                                s_inlineMetaSaveMsg += L(Write_BlockedNetworkLibrary);
-                            }
-                        }
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button(L(Main_CancelBracketBtn), ImVec2(-1, 28))) {
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                        s_inlineMetaSaveMsg.clear();
-                    }
-                }
-                if (!s_inlineMetaSaveMsg.empty()) {
-                    ImGui::TextColored(
-                        s_inlineMetaSaveFailed > 0 ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) :
-                        (s_inlineMetaSaveSkipped > 0 ? ImVec4(1.0f, 0.8f, 0.2f, 1.0f) : ImVec4(0.4f, 0.9f, 0.4f, 1.0f)),
-                        "%s", s_inlineMetaSaveMsg.c_str());
-                }
             }
 
             // Region info (display only, no DAW drag buttons)
@@ -18735,20 +18772,7 @@ void RenderFileInfoPanelTabContents(
                     } else if (!staleEntriesView) {
                     SanitizeCoverWallItemsForCache(page.items);
                     if (wasLoadingNextPage) {
-                        std::unordered_set<std::string> existingTokens;
-                        existingTokens.reserve(cw.items.size() + page.items.size());
-                        for (const auto& it : cw.items) {
-                            existingTokens.insert(BuildCoverWallVisualDedupeToken(it));
-                        }
-                        for (auto& item : page.items) {
-                            const std::string dedupeToken =
-                                BuildCoverWallVisualDedupeToken(item);
-                            if (!item.key.empty() &&
-                                !dedupeToken.empty() &&
-                                existingTokens.insert(dedupeToken).second) {
-                                cw.items.push_back(std::move(item));
-                            }
-                        }
+                        AppendUniqueCoverWallPageItems(cw.items, page.items);
                     } else {
                         cw.items = std::move(page.items);
                     }
@@ -18878,6 +18902,9 @@ void RenderFileInfoPanelTabContents(
                     setDisplayItems(&cw.items, CoverWallSource::Global);
                 }
 
+                globalPageLoadingWithoutStableItems =
+                    (cw.loading || cw.entriesInFlight || cw.foldersInFlight || cw.preloadInFlight) &&
+                    (!pDisplayItems || pDisplayItems->empty());
                 // Refresh the cover-wall load-state text.
                 }
             }
@@ -18926,15 +18953,21 @@ void RenderFileInfoPanelTabContents(
                 state.coverFilterActive &&
                 !state.coverFilterPath.empty()) {
                 CoverModule::CoverItem ci;
+                std::vector<std::string> selectedKeys;
+                const bool exactSelection = aura::cover_wall::DecodeCoverWallSelectionKey(
+                    state.coverFilterPath, selectedKeys);
+                const std::string selectedTileKey = exactSelection
+                    ? selectedKeys.front() : state.coverFilterPath;
                 if (UseReplacementCoverWallIntegratedMode(state) &&
                     !cw.pinnedCoverFilterItem.key.empty() &&
-                    cw.pinnedCoverFilterItem.key == state.coverFilterPath) {
+                    (cw.pinnedCoverFilterItem.key == state.coverFilterPath ||
+                     cw.pinnedCoverFilterItem.wallSelectionKey == state.coverFilterPath)) {
                     ci = cw.pinnedCoverFilterItem;
                 } else {
                     auto findByKey = [&](const std::vector<CoverModule::CoverItem>* src) -> const CoverModule::CoverItem* {
                         if (!src) return nullptr;
                         for (const auto& it : *src) {
-                            if (it.key == state.coverFilterPath) return &it;
+                            if (it.key == selectedTileKey) return &it;
                         }
                         return nullptr;
                     };
@@ -18945,11 +18978,12 @@ void RenderFileInfoPanelTabContents(
                     if (found) {
                         ci = *found;
                     } else {
-                        ci.key = state.coverFilterPath;
+                        ci.key = selectedTileKey;
                         ci.kind = CoverModule::CoverKind::FolderCover;
-                        ci.label = BaseNameFromUtf8Path(state.coverFilterPath);
+                        ci.label = BaseNameFromUtf8Path(selectedTileKey);
                     }
                 }
+                ci.wallSelectionKey = state.coverFilterPath;
                 ci.hitCount = (int64_t)state.searchResults.size();
                 coverFilterPinned.push_back(std::move(ci));
                 pDisplayItems = &coverFilterPinned;
@@ -19661,7 +19695,14 @@ void RenderFileInfoPanelTabContents(
                                 ImGui::SetCursorScreenPos(cellScreenPos);
                                 if (ImGui::InvisibleButton("##ArtHit", ImVec2(thumb, thumb))) {
                                     auto t0 = std::chrono::steady_clock::now();
-                                    if (item.key.rfind("?|", 0) == 0) {
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    if (item.key.rfind("?|", 0) == 0 && item.wallMemberKeys.size() <= 1) {
                                         state.folderFilterActive = true;
                                         // T2.6: cover wall art click 入口 canonical
                                         state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(item.folderPathUtf8);
@@ -19670,15 +19711,15 @@ void RenderFileInfoPanelTabContents(
                                         state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                     } else {
                                         // Query without a folder boundary for this identity.
-                                        if (state.coverFilterActive && state.coverFilterPath == item.key) {
+                                        if (state.coverFilterActive && state.coverFilterPath == selectionKey) {
                                             state.coverFilterActive = false;
                                             state.coverFilterPath.clear();
                                             state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                         } else {
                                             state.coverFilterActive = true;
-                                            state.coverFilterPath = item.key;
+                                            state.coverFilterPath = selectionKey;
                                             if (state.database.isOpen()) {
-                                                (void)state.database.getFileIdsForCoverTileMembership(item.key);
+                                                (void)state.database.getFileIdsForCoverTileMembership(selectionKey);
                                             }
                                             // Snapshot the clicked item so the render-time
                                             // "narrow wall to active cover" override always
@@ -19689,6 +19730,7 @@ void RenderFileInfoPanelTabContents(
                                             // collapses to "0 个封面".
                                             if (UseReplacementCoverWallIntegratedMode(state)) {
                                                 state.coverWall.pinnedCoverFilterItem = item;
+                                                state.coverWall.pinnedCoverFilterItem.wallSelectionKey = selectionKey;
                                             } else {
                                                 state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                             }
@@ -19720,7 +19762,14 @@ void RenderFileInfoPanelTabContents(
 
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                                     MaybePausePlaybackOnInScopeDragStart();
-                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", item.key.c_str(), (int)(item.key.size() + 1));
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", selectionKey.c_str(), (int)(selectionKey.size() + 1));
                                     ImGui::Text(L(Main_CategorizeCoverAllFmt), item.label.c_str());
                                     ImGui::EndDragDropSource();
                                 }
@@ -32398,6 +32447,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             } else if (!quickAutoStarted) {
                 // 手动打开对话框 → 需要选择文件夹
                 if (ImGui::Button(L(Scan_SelectAndScan), ImVec2(220, 0))) {
@@ -32412,6 +32465,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             }
         }
         if (!state.isScanning &&
@@ -33055,6 +33112,12 @@ void RenderUI(AppState& state) {
         static int newDbCacheMode = (int)WaveformCachePolicy::Mode::MiniOnly;
         static bool newDbPending = false;
         static bool confirmOverwrite = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+        if (!state.qaNewDbName.empty()) {
+            snprintf(newDbNameBuf, sizeof(newDbNameBuf), "%s", state.qaNewDbName.c_str());
+            state.qaNewDbName.clear();
+        }
+#endif
         if (newDbPending && !state.dbSwitchInProgress) {
             newDbPending = false;
             if (state.dbSwitchError.empty()) {
@@ -33130,15 +33193,30 @@ void RenderUI(AppState& state) {
         bool canCreate = nameValid && (!exists || confirmOverwrite);
 
         ImGui::BeginDisabled(!canCreate);
-        if (ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32))) {
+        bool createClicked = ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32));
+#ifdef ARIS_PREVIEW_ISOLATION
+        const bool qaCreateClicked = std::exchange(state.qaCreateNewDbNow, false);
+        createClicked = createClicked || (qaCreateClicked && canCreate);
+#endif
+        if (createClicked) {
             if (Platform::FileSystem::IsNetworkPath(dbDir) ||
                 Platform::FileSystem::IsNetworkPath(fullPath)) {
                 newDbError = L(Db_RejectNetworkPath);
             } else {
-            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite)) {
+            auto deferredStart=[&state](bool started, const std::string& error) {
+                if (started) {
+                    newDbError.clear();
+                    newDbPending=true;
+                } else {
+                    newDbError=error.empty() ? state.dbSwitchError : error;
+                    if (newDbError.empty()) newDbError=state.database.getLastError();
+                    if (newDbError.empty()) newDbError=L(Db_CreateNotStarted);
+                }
+            };
+            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite, deferredStart)) {
                 newDbError.clear();
                 newDbPending = true;
-            } else {
+            } else if (!state.infoEditSession.awaitingChoice) {
                 if (newDbError.empty()) {
                     newDbError = state.database.getLastError();
                 }
@@ -40014,29 +40092,20 @@ void RenderUI(AppState& state) {
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
                                         ImDrawList* infoDl) {
-        const float pageAvailableWidth = shell.shellWidth - 48.0f;
+        const float pageAvailableWidth = shell.shellWidth - 28.0f;
         const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
         RenderFileInfoPageActions(infoState,
-            ImVec2(shell.insetL + shell.shellWidth - 48.0f - pageWidth, 0.0f),
+            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, 0.0f),
             shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
-        const float editIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
-        const float similarIconX = editIconX - iconBtnSize - 2.0f;
+        const float similarIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
         const float iconY = (shell.titleHeight - iconBtnSize) * 0.5f;
 
-        const bool canEdit = (infoState.currentFileId > 0);
-        const bool isEditing = infoState.metadataEditMode;
         const auto& panelTheme = ThemeColors::current();
         const ImVec4 panelBg = ThemeColors::infoPanelDockBG(panelTheme);
         const ImVec4 iconBase = uiMix(panelTheme.metadataPanelText, panelBg, 0.30f);
-        const ImVec4 iconActive = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.20f);
         const ImVec4 iconHover = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.34f);
-        const ImU32 iconColor = isEditing
-            ? ImGui::GetColorU32(uiWithAlpha(iconActive, 0.92f))
-            : canEdit
-                ? ImGui::GetColorU32(uiWithAlpha(iconBase, 0.72f))
-                : ImGui::GetColorU32(uiWithAlpha(uiMix(iconBase, panelBg, 0.40f), 0.34f));
         const ImU32 iconHoverColor = ImGui::GetColorU32(uiWithAlpha(iconHover, 0.98f));
 
         ImGui::SetCursorPos(ImVec2(similarIconX, iconY));
@@ -40068,73 +40137,15 @@ void RenderUI(AppState& state) {
         if (similarHovered) aura::ui::Tooltip(L(Similar_OpenTooltip));
         ImGui::PopID();
 
-        ImGui::SetCursorPos(ImVec2(editIconX, iconY));
-        ImGui::PushID("##InfoEditMetaIcon");
-        if (!canEdit && !isEditing) ImGui::BeginDisabled();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.18f), 0.72f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.28f), 0.82f));
-        const bool editClicked = ImGui::Button("##editMetaBtn", ImVec2(iconBtnSize, iconBtnSize));
-        const bool editHovered = ImGui::IsItemHovered();
-        ImGui::PopStyleColor(3);
-        {
-            const ImVec2 btnMin = ImGui::GetItemRectMin();
-            const float s = iconBtnSize;
-            const float cx = btnMin.x + s * 0.5f;
-            const float cy = btnMin.y + s * 0.5f;
-            const ImU32 col = editHovered ? iconHoverColor : iconColor;
-            const float thick = 1.4f;
-            const ImVec2 p0(cx + s * 0.28f, cy - s * 0.28f);
-            const ImVec2 p1(cx - s * 0.18f, cy + s * 0.18f);
-            infoDl->AddLine(p0, p1, col, thick);
-            infoDl->AddLine(p1, ImVec2(cx - s * 0.32f, cy + s * 0.32f), col, thick);
-            infoDl->AddLine(ImVec2(cx + s * 0.20f, cy - s * 0.36f),
-                            ImVec2(cx + s * 0.36f, cy - s * 0.20f), col, thick);
-        }
-        if (editClicked) {
-            if (isEditing) {
-                infoState.metadataEditMode = false;
-                infoState.metadataBatchMode = false;
-                infoState.metadataBatchIds.clear();
-            } else if (canEdit) {
-                const bool isMultiSelect = infoState.selectedIndicesSet.size() > 1;
-                infoState.metadataEditMode = true;
-                if (isMultiSelect) {
-                    infoState.metadataBatchMode = true;
-                    infoState.metadataBatchIds.clear();
-                    for (int idx : infoState.selectedIndicesSet) {
-                        if (idx >= 0 && idx < (int)infoState.searchResults.size())
-                            infoState.metadataBatchIds.push_back(infoState.searchResults[idx].id);
-                    }
-                    infoState.metadataDescBuffer[0] = '\0';
-                    infoState.metadataKeywordsBuffer[0] = '\0';
-                    infoState.metadataCategoryBuffer[0] = '\0';
-                } else {
-                    infoState.metadataBatchMode = false;
-                    infoState.metadataEditFileId = infoState.currentFileId;
-                    AudioRecord rec = infoState.database.getFileById(infoState.currentFileId);
-                    strncpy_s(infoState.metadataDescBuffer, sizeof(infoState.metadataDescBuffer), rec.description.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataKeywordsBuffer, sizeof(infoState.metadataKeywordsBuffer), rec.keywords.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataCategoryBuffer, sizeof(infoState.metadataCategoryBuffer), rec.category.c_str(), _TRUNCATE);
-                }
-            }
-        }
-        if (editHovered) {
-            const char* tip = isEditing ? L(Info_ExitEditMode)
-                : (infoState.selectedIndicesSet.size() > 1 ? L(Info_BatchEditMetadata) : L(Info_EditMetadata));
-            HarkenSearch::SetTooltip("%s", tip);
-        }
-        if (!canEdit && !isEditing) ImGui::EndDisabled();
-        ImGui::PopID();
-        return 48.0f + pageWidth;
+        return 28.0f + pageWidth;
     };
 
     auto drawFloatingInfoTitleActions = [&]() {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const ImRect title = window->TitleBarRect();
         const ImVec2 saved = ImGui::GetCursorPos();
+        ThemeInspector::RegisterZone(ImVec2(title.Max.x-title.GetHeight(),title.Min.y),title.Max,
+            "info.close",L(Panel_Hide),"src/main.cpp");
         DockModuleShellLayout shell;
         shell.insetL = 0.0f;
         shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
@@ -44376,7 +44387,7 @@ void RenderUI(AppState& state) {
                         }
 // F-006: Edit Metadata context entry
                         if (ProductEdition::hasFeature("metadata_edit")) {
-                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry))) {
+                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry),nullptr,false,!state.infoEditSession.active)) {
                             if (isMulti) {
                                 state.metadataBatchMode = true;
                                 state.metadataBatchIds.clear();
@@ -51003,7 +51014,7 @@ void RenderUI(AppState& state) {
         const ImRect label(title.Min, ImVec2(
             (std::min)(title.Min.x + labelWidth, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
         const float infoActionsWidth = std::strcmp(moduleId, "info") == 0
-            ? 48.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-48.0f) : 0.0f;
+            ? 28.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-28.0f) : 0.0f;
         const ImRect dockDragLabel(title.Min, ImVec2(
             (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f - infoActionsWidth), title.Max.y));
         drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered() && dockDragLabel.Contains(ImGui::GetMousePos()));

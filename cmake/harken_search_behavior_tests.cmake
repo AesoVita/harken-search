@@ -5400,6 +5400,24 @@ endif()
 
 # dB-norm helper for Wwise-style RMS silhouette rendering (pure math, no deps).
 
+add_executable(TestCoverWallPageDedupe EXCLUDE_FROM_ALL
+    tests/test_cover_wall_page_dedupe.cpp
+    src/CoverWallPageResultBuilder.cpp
+    src/PathUtils.cpp
+)
+target_include_directories(TestCoverWallPageDedupe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
+    ${SQLITE_DIR}
+    ${IMGUI_DIR}
+)
+target_compile_features(TestCoverWallPageDedupe PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestCoverWallPageDedupe PRIVATE /utf-8)
+endif()
+add_test(NAME CoverWallPageDedupe COMMAND TestCoverWallPageDedupe)
+aura_set_test_labels(CoverWallPageDedupe db)
+
 add_executable(TestDatabaseFeatures EXCLUDE_FROM_ALL
     tests/test_database_features.cpp
     tests/test_database_link_stubs.cpp
@@ -8184,6 +8202,10 @@ if(WIN32)
 endif()
 
 add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoEditSession tests/test_info_edit_session.cpp)
+target_include_directories(TestInfoEditSession PRIVATE src)
+add_test(NAME InfoEditSession COMMAND TestInfoEditSession)
+aura_set_test_labels(InfoEditSession ui info)
 add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
     thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
     thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)
