@@ -8260,20 +8260,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // 恢复到"普通大小"，丢失最大化状态。
             //
             // 策略：
-            //   iconic + 有 saved state → 什么都不做，让 SC_RESTORE 处理
-            //   iconic + 无 saved state → 普通恢复（兜底）
+            //   iconic → 不主动恢复，让任务栏的正常恢复消息处理原窗口状态
             //   非 iconic + 有 saved state → 二次保障（ShowManagerWindowNow
             //       已还原位置但还没最大化时可能触发 WM_ACTIVATE）
 
             if (IsIconic(hwnd)) {
-                // 窗口仍处于最小化：如果有保存状态，留给 SC_RESTORE 处理
-                if (!g_savedPlacementForDragHideValid && !g_savedPlacementForTrayMinimizeValid) {
-                    // 无保存状态——通用恢复
-                    (void)Platform::WindowShow(hwnd, SW_RESTORE);
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic generic restore");
-                } else {
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic but saved state exists, deferring to SC_RESTORE");
-                }
+                AppendDiagLogF(L"WM_ACTIVATE: iconic, deferring restore to Windows");
             } else {
                 // 非 iconic：作为二次保障应用保存状态
                 if (g_savedPlacementForDragHideValid) {
