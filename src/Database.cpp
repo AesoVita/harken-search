@@ -11,6 +11,7 @@
 #include "BackfillWorkerPool.h"
 #include "BackgroundIoPolicy.h"
 #include "CoverModule.h"  // InvalidateCoverForPath clears stale UI artwork after a path change.
+#include "CoverWallSelectionKey.h"
 #include "CoverReplacementFoundation.h"
 #include "MetadataReader.h"
 #include "platform/database_audio_probe.h"
@@ -707,7 +708,8 @@ struct CoverFacetCluster {
 static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
     const std::vector<CoverFacetCandidate>& candidates,
     int limit,
-    bool sortByCount);
+    bool sortByCount,
+    bool mergeSimilarPhashes = true);
 static std::vector<std::string> ResolveEquivalentCoverKeys(Database* db, const std::string& coverKey);
 static std::string CanonicalizeCoverLookupKey(const std::string& coverKey);
 static bool EnsureCoverTileMembershipForKeys(sqlite3* db,
@@ -718,6 +720,68 @@ static bool TryExtractTemporaryFolderIdentityPath(const std::string& coverKey,
                                                   std::string* outCanonicalFolderPath);
 static bool TryExtractCanonicalFolderCoverSourcePath(const std::string& coverKey,
                                                      std::string* outCanonicalSourcePath);
+
+struct ExactCoverWallSelectionMembers {
+    std::vector<std::string> keys;
+    std::vector<std::string> temporaryFolders;
+};
+
+static bool ParseExactCoverWallSelection(const std::string& selection,
+                                         ExactCoverWallSelectionMembers& members) {
+    std::vector<std::string> encodedKeys;
+    if (!aura::cover_wall::DecodeCoverWallSelectionKey(selection, encodedKeys)) return false;
+    std::unordered_set<std::string> seenKeys;
+    std::unordered_set<std::string> seenFolders;
+    for (const auto& rawKey : encodedKeys) {
+        std::string folder;
+        if (TryExtractTemporaryFolderIdentityPath(rawKey, &folder)) {
+            if (seenFolders.insert(folder).second) members.temporaryFolders.push_back(std::move(folder));
+        } else {
+            const std::string key = CanonicalizeCoverLookupKey(rawKey);
+            if (!key.empty() && seenKeys.insert(key).second) members.keys.push_back(key);
+        }
+    }
+    return !members.keys.empty() || !members.temporaryFolders.empty();
+}
+
+static std::string CoverWallSelectionJsonArray(const std::vector<std::string>& values) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string json = "[";
+    for (const auto& value : values) {
+        if (json.size() > 1) json += ',';
+        json += '"';
+        for (const unsigned char c : value) {
+            if (c == '"' || c == '\\') { json += '\\'; json += static_cast<char>(c); }
+            else if (c < 0x20) {
+                json += "\\u00";
+                json += hex[c >> 4];
+                json += hex[c & 15];
+            } else json += static_cast<char>(c);
+        }
+        json += '"';
+    }
+    json += ']';
+    return json;
+}
+
+static void ExpandExactCoverWallRegistryAliases(sqlite3* db,
+                                                ExactCoverWallSelectionMembers& members) {
+    if (!db || members.keys.empty()) return;
+    const char* sql =
+        "SELECT cover_key FROM cover_cache_registry "
+        "WHERE normalized_key IN (SELECT value FROM json_each(?))";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    const std::string normalizedKeys = CoverWallSelectionJsonArray(members.keys);
+    sqlite3_bind_text(stmt, 1, normalizedKeys.c_str(), (int)normalizedKeys.size(), SQLITE_TRANSIENT);
+    std::unordered_set<std::string> seen(members.keys.begin(), members.keys.end());
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const std::string raw = text ? text : "";
+        if (!raw.empty() && seen.insert(raw).second) members.keys.push_back(raw);
+    }
+    sqlite3_finalize(stmt);
+}
 
 static void AccumulateSemicolonFacetTokens(const std::string& rawValue,
                                            std::unordered_map<std::string, int>* counts) {
@@ -6143,6 +6207,30 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
 
 
     if (!filter.specificCoverKey.empty()) {
+        ExactCoverWallSelectionMembers exactMembers;
+        if (ParseExactCoverWallSelection(filter.specificCoverKey, exactMembers)) {
+            ExpandExactCoverWallRegistryAliases(m_db, exactMembers);
+            if (!exactMembers.keys.empty()) {
+                EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys);
+            }
+            // json_each keeps the number of SQL bind parameters fixed even
+            // when one visible tile represents thousands of legacy folders.
+            bq.coverKeySubquery =
+                "SELECT file_id FROM cover_tile_membership "
+                "WHERE tile_key IN (SELECT value FROM json_each(?))";
+            bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.keys));
+            if (!exactMembers.temporaryFolders.empty()) {
+                bq.coverKeySubquery +=
+                    " UNION SELECT id FROM audio_files "
+                    "WHERE has_cover = 1 "
+                    "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
+                    "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
+                    "AND lower(replace(folder_path, '/', '\\')) "
+                    "IN (SELECT value FROM json_each(?))";
+                bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.temporaryFolders));
+            }
+            bq.coverKeyClauseKind = 3;
+        } else {
         // audio-library artwork identity: one visible artwork may represent
         // multiple embedded/folder keys. Resolve the visual cluster before filtering.
         // T2.2: 用户输入的 specificCoverKey 必须先过 CoverModule::CanonicalCoverKey,
@@ -6215,6 +6303,7 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
                 for (const auto& key : equivalentKeys) bq.coverKeyBindValues.push_back(key);
                 bq.coverKeyClauseKind = 3;
             }
+        }
         }
     }
 
@@ -7492,22 +7581,15 @@ static void LoadCoverTileMembershipIdsForKeys(sqlite3* db,
                                               const std::vector<std::string>& tileKeys,
                                               std::vector<int64_t>* out) {
     if (!db || !out || tileKeys.empty()) return;
-
-    std::string membershipSql = "SELECT DISTINCT file_id FROM cover_tile_membership WHERE tile_key IN (";
-    for (size_t i = 0; i < tileKeys.size(); ++i) {
-        if (i > 0) membershipSql += ",";
-        membershipSql += "?";
-    }
-    membershipSql += ") ORDER BY file_id";
-
+    const char* membershipSql =
+        "SELECT DISTINCT file_id FROM cover_tile_membership "
+        "WHERE tile_key IN (SELECT value FROM json_each(?)) ORDER BY file_id";
     sqlite3_stmt* membershipStmt = nullptr;
-    if (sqlite3_prepare_v2(db, membershipSql.c_str(), -1, &membershipStmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, membershipSql, -1, &membershipStmt, nullptr) != SQLITE_OK) {
         return;
     }
-    int bindIndex = 1;
-    for (const auto& key : tileKeys) {
-        sqlite3_bind_text(membershipStmt, bindIndex++, key.c_str(), (int)key.size(), SQLITE_TRANSIENT);
-    }
+    const std::string keysJson = CoverWallSelectionJsonArray(tileKeys);
+    sqlite3_bind_text(membershipStmt, 1, keysJson.c_str(), (int)keysJson.size(), SQLITE_TRANSIENT);
     while (sqlite3_step(membershipStmt) == SQLITE_ROW) {
         out->push_back(sqlite3_column_int64(membershipStmt, 0));
     }
@@ -7523,14 +7605,28 @@ static bool EnsureCoverTileMembershipForKeys(sqlite3* db,
     std::vector<int64_t>* target = out ? out : &scratch;
     target->clear();
     LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
-    if (!target->empty()) return true;
-
-    if (sqlite3_db_readonly(db, "main") == 1) return false;
-    const int repaired = SyncCoverTileMembershipForKeys(db, tileKeys);
-    if (repaired <= 0) return false;
-
-    target->clear();
-    LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
+    if (sqlite3_db_readonly(db, "main") == 1) return !target->empty();
+    const char* missingSql =
+        "SELECT value FROM json_each(?) AS requested "
+        "WHERE NOT EXISTS (SELECT 1 FROM cover_tile_membership "
+        "WHERE tile_key = requested.value)";
+    sqlite3_stmt* missingStmt = nullptr;
+    if (sqlite3_prepare_v2(db, missingSql, -1, &missingStmt, nullptr) != SQLITE_OK) {
+        return !target->empty();
+    }
+    const std::string keysJson = CoverWallSelectionJsonArray(tileKeys);
+    sqlite3_bind_text(missingStmt, 1, keysJson.c_str(), (int)keysJson.size(), SQLITE_TRANSIENT);
+    std::vector<std::string> missingKeys;
+    while (sqlite3_step(missingStmt) == SQLITE_ROW) {
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(missingStmt, 0));
+        if (text) missingKeys.emplace_back(text);
+    }
+    sqlite3_finalize(missingStmt);
+    if (!missingKeys.empty()) {
+        SyncCoverTileMembershipForKeys(db, missingKeys);
+        target->clear();
+        LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
+    }
     return !target->empty();
 }
 
@@ -8399,18 +8495,26 @@ static bool CoverCandidateMatchesCluster(const CoverFacetCandidate& candidate,
 static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
     const std::vector<CoverFacetCandidate>& candidates,
     int limit,
-    bool sortByCount) {
+    bool sortByCount,
+    bool mergeSimilarPhashes) {
     std::vector<CoverFacetCluster> clusters;
     clusters.reserve(candidates.size());
+    std::unordered_map<std::string, size_t> exactKeyIndex;
+    if (!mergeSimilarPhashes) exactKeyIndex.reserve(candidates.size());
 
     for (const auto& candidate : candidates) {
         if (candidate.key.empty() || candidate.path.empty()) continue;
 
         CoverFacetCluster* target = nullptr;
-        for (auto& cluster : clusters) {
-            if (CoverCandidateMatchesCluster(candidate, cluster)) {
-                target = &cluster;
-                break;
+        if (!mergeSimilarPhashes) {
+            const auto found = exactKeyIndex.find(candidate.key);
+            if (found != exactKeyIndex.end()) target = &clusters[found->second];
+        } else {
+            for (auto& cluster : clusters) {
+                if (CoverCandidateMatchesCluster(candidate, cluster)) {
+                    target = &cluster;
+                    break;
+                }
             }
         }
 
@@ -8420,6 +8524,7 @@ static std::vector<CoverFacetCandidate> ClusterCoverCandidates(
             cluster.totalCount = candidate.count;
             cluster.keys.push_back(candidate.key);
             if (candidate.phash != 0) cluster.phashes.push_back(candidate.phash);
+            if (!mergeSimilarPhashes) exactKeyIndex.emplace(candidate.key, clusters.size());
             clusters.push_back(std::move(cluster));
             continue;
         }
@@ -18063,14 +18168,35 @@ Database::CoverWallPage Database::getGlobalCoverWallEntriesPage(const std::strin
             if (!found) return page;
         }
 
+        // Choose the first file for each cover in one pass. Correlated
+        // NOT EXISTS checks repeated a large-library scan for every candidate
+        // and could leave the first page empty for tens of seconds.
         std::string sql = R"SQL(
-            SELECT af.id,
-                   COALESCE(NULLIF(r.normalized_key, ''), r.cover_key,
+            WITH ranked AS (
+                SELECT af.id, af.file_name, af.file_path, af.folder_path,
+                       af.embedded_cover_key, af.folder_cover_key,
+                       af.folder_cover_src_path,
                        CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                             THEN af.embedded_cover_key
                             WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
                             THEN af.folder_cover_key
-                            ELSE '?|' || af.folder_path END),
+                            ELSE '?|' || af.folder_path END AS cover_identity,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY CASE
+                               WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
+                               THEN af.embedded_cover_key
+                               WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
+                               THEN af.folder_cover_key
+                               ELSE '?|' || af.folder_path END
+                           ORDER BY af.file_name COLLATE AURA_NATURAL, af.file_path, af.id
+                       ) AS cover_rank
+                FROM audio_files af
+                WHERE (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '') OR
+                      (af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '') OR
+                      (af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '')
+            )
+            SELECT af.id,
+                   COALESCE(NULLIF(r.normalized_key, ''), r.cover_key, af.cover_identity),
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                         THEN af.file_path ELSE af.folder_path END,
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
@@ -18079,53 +18205,9 @@ Database::CoverWallPage Database::getGlobalCoverWallEntriesPage(const std::strin
                         ELSE af.folder_cover_src_path END,
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                         THEN 1 ELSE 0 END
-            FROM audio_files af INDEXED BY idx_files_name_natural
-            LEFT JOIN cover_cache_registry r ON r.cover_key =
-                CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
-                     THEN af.embedded_cover_key
-                     WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
-                     THEN af.folder_cover_key
-                     ELSE '?|' || af.folder_path END
-            WHERE (
-                (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '') OR
-                (af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '') OR
-                (af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '')
-            )
-            AND (
-                (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.embedded_cover_key = af.embedded_cover_key
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 )) OR
-                ((af.embedded_cover_key IS NULL OR af.embedded_cover_key = '') AND
-                 af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.folder_cover_key = af.folder_cover_key
-                      AND (prev.embedded_cover_key IS NULL OR prev.embedded_cover_key = '')
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 )) OR
-                ((af.embedded_cover_key IS NULL OR af.embedded_cover_key = '') AND
-                 (af.folder_cover_key IS NULL OR af.folder_cover_key = '') AND
-                 af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.folder_path = af.folder_path AND prev.has_cover = 1
-                      AND (prev.embedded_cover_key IS NULL OR prev.embedded_cover_key = '')
-                      AND (prev.folder_cover_key IS NULL OR prev.folder_cover_key = '')
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 ))
-            )
+            FROM ranked af
+            LEFT JOIN cover_cache_registry r ON r.cover_key = af.cover_identity
+            WHERE af.cover_rank = 1
         )SQL";
         if (cursorId > 0) {
             sql += R"SQL(
@@ -18539,6 +18621,31 @@ std::vector<Database::CoverWallEntry> Database::getGlobalCoverWallEntries() {
 std::vector<int64_t> Database::getFileIdsForCoverTileMembership(const std::string& tileIdentityKey) {
     std::vector<int64_t> out;
     if (!m_db || tileIdentityKey.empty()) return out;
+    ExactCoverWallSelectionMembers exactMembers;
+    if (ParseExactCoverWallSelection(tileIdentityKey, exactMembers)) {
+        ExpandExactCoverWallRegistryAliases(m_db, exactMembers);
+        if (!exactMembers.keys.empty()) {
+            EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys, &out);
+        }
+        if (!exactMembers.temporaryFolders.empty()) {
+            const char* sql =
+                "SELECT id FROM audio_files WHERE has_cover = 1 "
+                "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
+                "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
+                "AND lower(replace(folder_path, '/', '\\')) "
+                "IN (SELECT value FROM json_each(?))";
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+                const std::string paths = CoverWallSelectionJsonArray(exactMembers.temporaryFolders);
+                sqlite3_bind_text(stmt, 1, paths.c_str(), (int)paths.size(), SQLITE_TRANSIENT);
+                while (sqlite3_step(stmt) == SQLITE_ROW) out.push_back(sqlite3_column_int64(stmt, 0));
+            }
+            if (stmt) sqlite3_finalize(stmt);
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
     const std::string lookupKey = CanonicalizeCoverLookupKey(tileIdentityKey);
     std::string temporaryFolderPath;
     if (TryExtractTemporaryFolderIdentityPath(lookupKey, &temporaryFolderPath)) {
@@ -18597,7 +18704,8 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
                     filter.category.empty() &&
                     filter.specificCoverKey.empty();
 
-    const std::string persistentCacheKey = BuildPersistentFacetCacheKey(filter, limit, "cover_cluster_v5");
+    const std::string persistentCacheKey = BuildPersistentFacetCacheKey(
+        filter, limit, filter.folderPath.empty() ? "cover_cluster_v5" : "cover_folder_distinct_v1");
     bool registrySparse = false;
     auto buildRegistryFacetResults = [&](int candidateLimit) {
         return BuildCoverFacetEntriesFromCandidates(
@@ -18703,7 +18811,9 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
                 }
                 sqlite3_finalize(stmt);
 
-                auto clustered = ClusterCoverCandidates(raw, limit, true);
+                // A selected path shows each distinct cover key, even when
+                // different artwork files happen to look nearly identical.
+                auto clustered = ClusterCoverCandidates(raw, limit, true, false);
                 results.reserve(clustered.size());
                 for (const auto& c : clustered) {
                     CoverFacetEntry e;
@@ -18809,7 +18919,9 @@ std::vector<Database::CoverFacetEntry> Database::getCoverFacets(const SearchFilt
     }
     sqlite3_finalize(stmt);
 
-    auto clustered = ClusterCoverCandidates(raw, limit, true);
+    // Keep visual grouping for non-path searches; a selected path keeps
+    // distinct artwork keys while still collapsing repeated use of one key.
+    auto clustered = ClusterCoverCandidates(raw, limit, true, filter.folderPath.empty());
     results.reserve(clustered.size());
     for (const auto& c : clustered) {
         CoverFacetEntry e;
@@ -18967,7 +19079,8 @@ bool Database::persistCoverFacetCache(const SearchFilter& filter,
                                       const std::vector<CoverFacetEntry>& entries) {
     if (!ShouldPersistFacetEntriesForFilter(filter, (int)entries.size())) return false;
     const std::string persistentCacheKey =
-        BuildPersistentFacetCacheKey(filter, limit, "cover_cluster_v5");
+        BuildPersistentFacetCacheKey(
+            filter, limit, filter.folderPath.empty() ? "cover_cluster_v5" : "cover_folder_distinct_v1");
     auto payload = SerializeCoverFacetEntries(entries);
     return saveFacetQueryCache(persistentCacheKey, payload, (int)entries.size());
 }
