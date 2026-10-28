@@ -50,7 +50,7 @@ inline void Record(const char* id, bool text, ImU32 foreground, ImU32 background
 }
 // Match AddText's unwrapped glyph geometry before clipping, including font
 // scale and pixel snapping. A line-height rectangle is not the visible ink.
-inline void Text(const char* id, ImU32 foreground, ImU32 background,
+inline void RecordGlyphs(const char* id, ImU32 foreground, ImU32 background,
                  ImVec2 position, const char* text, ImFont* font = nullptr, float size = 0) {
     if (!Collecting() || frame != ImGui::GetFrameCount()) return;
     if (!font) font = ImGui::GetFont();

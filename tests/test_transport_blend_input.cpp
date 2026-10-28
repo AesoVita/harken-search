@@ -64,7 +64,7 @@ int main() {
     TransportVisualAudit::Begin(0, ImVec2(20, 20), ImVec2(420, 140), IM_COL32_BLACK);
     ImGui::GetWindowDrawList()->PushClipRect(ImVec2(60, 50), ImVec2(100, 80), true);
     ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), 20, ImVec2(40, 55), ink, "OVERFLOW");
-    TransportVisualAudit::Text("test", ink, IM_COL32_BLACK, ImVec2(40, 55), "OVERFLOW", ImGui::GetFont(), 20);
+    TransportVisualAudit::RecordGlyphs("test", ink, IM_COL32_BLACK, ImVec2(40, 55), "OVERFLOW", ImGui::GetFont(), 20);
     ImGui::GetWindowDrawList()->PopClipRect();
     const auto& measured = TransportVisualAudit::checks.at(0);
     Check(measured.glyphBounds && measured.min.x < 60 && measured.max.x > 100,

@@ -25361,26 +25361,27 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     draw->AddLine(ImVec2(markMin.x + 3.0f, markMax.y - 1.0f),
                   ImVec2(markMax.x - 3.0f, markMax.y - 1.0f), markLineColor,
                   markPressed ? 2.0f : 1.5f);
-    TransportVisualAudit::Text("eq.label", markColor, ImGui::GetColorU32(markBackground),
+    TransportVisualAudit::RecordGlyphs("eq.label", markColor, ImGui::GetColorU32(markBackground),
         ImVec2(markMin.x + 18.0f, markMin.y + 3.5f), "EQ", markFont, 14.0f);
     const SlopeDisplay steepnessLabel = slopeDisplay(settings.steepness);
     const float slopeAvailableWidth = std::max(0.0f, steepnessVisibleRight - steepnessLeft);
     const ImVec2 fullSlopeSize = ImGui::CalcTextSize(steepnessLabel.compact);
     const ImVec2 shortSlopeSize = ImGui::CalcTextSize(steepnessLabel.shortValue);
     if (slopeAvailableWidth >= 4.0f) {
+        const float slopeClipHeight = std::max(13.0f, 1.0f + std::max(fullSlopeSize.y, shortSlopeSize.y));
         draw->PushClipRect(ImVec2(steepnessLeft, pos.y),
-                           ImVec2(steepnessVisibleRight, pos.y + 13.0f), true);
+                           ImVec2(steepnessVisibleRight, pos.y + slopeClipHeight), true);
         if (slopeAvailableWidth >= 22.0f + fullSlopeSize.x) {
             drawSteepnessCurve(draw, ImVec2(steepnessLeft + 1.0f, pos.y + 8.0f), settings.mode,
                                settings.steepness, settings.enabled ? status : muted);
             draw->AddText(ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), muted,
                           steepnessLabel.compact);
-            TransportVisualAudit::Text("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+            TransportVisualAudit::RecordGlyphs("eq.slope", muted, ImGui::GetColorU32(transportSurface),
                 ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), steepnessLabel.compact);
         } else if (slopeAvailableWidth >= shortSlopeSize.x + 2.0f) {
             draw->AddText(ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), muted,
                           steepnessLabel.shortValue);
-            TransportVisualAudit::Text("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+            TransportVisualAudit::RecordGlyphs("eq.slope", muted, ImGui::GetColorU32(transportSurface),
                 ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), steepnessLabel.shortValue);
         } else if (slopeAvailableWidth >= 18.0f) {
             drawSteepnessCurve(draw, ImVec2(steepnessLeft, pos.y + 8.0f), settings.mode,
@@ -25458,7 +25459,7 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                 labelLeft + labelSize.x > frequencyLabelMinX - 2.0f;
             if (!frequencyLabelOverlap && labelLeft >= lastLabelRight + 4.0f) {
                 draw->AddText(ImVec2(labelLeft, pos.y + 2.0f), muted, tick.label);
-                TransportVisualAudit::Text("eq.tick_label", muted, ImGui::GetColorU32(transportSurface),
+                TransportVisualAudit::RecordGlyphs("eq.tick_label", muted, ImGui::GetColorU32(transportSurface),
                     ImVec2(labelLeft, pos.y + 2.0f), tick.label);
                 lastLabelRight = labelLeft + labelSize.x;
             }
@@ -25493,7 +25494,7 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                             ImGui::GetColorU32(transportSurface), 2.0f);
         draw->AddText(ImVec2(frequencyInfoX, pos.y + 1.0f),
                       showFrequencyFallback ? baseText : muted, frequencyInfoText);
-        TransportVisualAudit::Text("eq.frequency", showFrequencyFallback ? baseText : muted,
+        TransportVisualAudit::RecordGlyphs("eq.frequency", showFrequencyFallback ? baseText : muted,
             ImGui::GetColorU32(transportSurface), ImVec2(frequencyInfoX, pos.y + 1), frequencyInfoText);
     } else {
         const float indicatorX = frequencyInfoLeft + frequencyInfoWidth * 0.5f;
@@ -25575,7 +25576,7 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     } else {
         draw->AddText(ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f),
                       modeInk, modeLabel);
-        TransportVisualAudit::Text("eq.mode", modeInk, ImGui::GetColorU32(modeBackground),
+        TransportVisualAudit::RecordGlyphs("eq.mode", modeInk, ImGui::GetColorU32(modeBackground),
             ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f), modeLabel);
     }
     draw->PopClipRect();
