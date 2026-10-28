@@ -134,13 +134,17 @@ int main() {
     CHECK(!browserPolicy.empty(), "source contract can read browser system folder search policy");
     CHECK(!browserRuntime.empty(), "source contract can read browser system folder search runtime");
     if (!mainCpp.empty() && !browserPolicy.empty() && !browserRuntime.empty()) {
-        for (const auto* surface : {"needsDbSetup", "showEmptyResultsSurface", "showStandaloneEmptyResultsSurface"}) {
-            const auto begin = mainCpp.find(std::string("const bool ") + surface + " =");
+        {
+            const auto begin = mainCpp.find("const bool needsDbSetup =");
             const auto end = mainCpp.find(';', begin);
             CHECK(begin != std::string::npos &&
                   mainCpp.substr(begin, end - begin).find("state.viewMode != ViewMode::Browser") != std::string::npos,
                   "database empty-state surfaces never hide browser files");
         }
+        CHECK(mainCpp.find("showEmptyResultsSurface") == std::string::npos &&
+              mainCpp.find("showStandaloneEmptyResultsSurface") == std::string::npos &&
+              mainCpp.find("\"##EmptyResultsSurface\"") == std::string::npos,
+              "TASK-20261028-NO-EMPTY-SURFACE: zero-result lists reserve no standalone empty box");
         const auto shortcutStart = mainCpp.find("if (activeSectionId == 5 && state.settings.showFolderShortcuts)");
         const auto shortcutEnd = mainCpp.find("// Section 1:", shortcutStart);
         const std::string shortcuts = mainCpp.substr(shortcutStart, shortcutEnd - shortcutStart);
