@@ -6217,15 +6217,18 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
             // when one visible tile represents thousands of legacy folders.
             bq.coverKeySubquery =
                 "SELECT file_id FROM cover_tile_membership "
-                "WHERE tile_key IN (SELECT value FROM json_each(?)) "
-                "UNION SELECT id FROM audio_files "
-                "WHERE has_cover = 1 "
-                "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
-                "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
-                "AND lower(replace(folder_path, '/', '\\')) "
-                "IN (SELECT value FROM json_each(?))";
+                "WHERE tile_key IN (SELECT value FROM json_each(?))";
             bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.keys));
-            bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.temporaryFolders));
+            if (!exactMembers.temporaryFolders.empty()) {
+                bq.coverKeySubquery +=
+                    " UNION SELECT id FROM audio_files "
+                    "WHERE has_cover = 1 "
+                    "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
+                    "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
+                    "AND lower(replace(folder_path, '/', '\\')) "
+                    "IN (SELECT value FROM json_each(?))";
+                bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.temporaryFolders));
+            }
             bq.coverKeyClauseKind = 3;
         } else {
         // audio-library artwork identity: one visible artwork may represent
@@ -7578,22 +7581,15 @@ static void LoadCoverTileMembershipIdsForKeys(sqlite3* db,
                                               const std::vector<std::string>& tileKeys,
                                               std::vector<int64_t>* out) {
     if (!db || !out || tileKeys.empty()) return;
-
-    std::string membershipSql = "SELECT DISTINCT file_id FROM cover_tile_membership WHERE tile_key IN (";
-    for (size_t i = 0; i < tileKeys.size(); ++i) {
-        if (i > 0) membershipSql += ",";
-        membershipSql += "?";
-    }
-    membershipSql += ") ORDER BY file_id";
-
+    const char* membershipSql =
+        "SELECT DISTINCT file_id FROM cover_tile_membership "
+        "WHERE tile_key IN (SELECT value FROM json_each(?)) ORDER BY file_id";
     sqlite3_stmt* membershipStmt = nullptr;
-    if (sqlite3_prepare_v2(db, membershipSql.c_str(), -1, &membershipStmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, membershipSql, -1, &membershipStmt, nullptr) != SQLITE_OK) {
         return;
     }
-    int bindIndex = 1;
-    for (const auto& key : tileKeys) {
-        sqlite3_bind_text(membershipStmt, bindIndex++, key.c_str(), (int)key.size(), SQLITE_TRANSIENT);
-    }
+    const std::string keysJson = CoverWallSelectionJsonArray(tileKeys);
+    sqlite3_bind_text(membershipStmt, 1, keysJson.c_str(), (int)keysJson.size(), SQLITE_TRANSIENT);
     while (sqlite3_step(membershipStmt) == SQLITE_ROW) {
         out->push_back(sqlite3_column_int64(membershipStmt, 0));
     }
@@ -7609,14 +7605,28 @@ static bool EnsureCoverTileMembershipForKeys(sqlite3* db,
     std::vector<int64_t>* target = out ? out : &scratch;
     target->clear();
     LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
-    if (!target->empty()) return true;
-
-    if (sqlite3_db_readonly(db, "main") == 1) return false;
-    const int repaired = SyncCoverTileMembershipForKeys(db, tileKeys);
-    if (repaired <= 0) return false;
-
-    target->clear();
-    LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
+    if (sqlite3_db_readonly(db, "main") == 1) return !target->empty();
+    const char* missingSql =
+        "SELECT value FROM json_each(?) AS requested "
+        "WHERE NOT EXISTS (SELECT 1 FROM cover_tile_membership "
+        "WHERE tile_key = requested.value)";
+    sqlite3_stmt* missingStmt = nullptr;
+    if (sqlite3_prepare_v2(db, missingSql, -1, &missingStmt, nullptr) != SQLITE_OK) {
+        return !target->empty();
+    }
+    const std::string keysJson = CoverWallSelectionJsonArray(tileKeys);
+    sqlite3_bind_text(missingStmt, 1, keysJson.c_str(), (int)keysJson.size(), SQLITE_TRANSIENT);
+    std::vector<std::string> missingKeys;
+    while (sqlite3_step(missingStmt) == SQLITE_ROW) {
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(missingStmt, 0));
+        if (text) missingKeys.emplace_back(text);
+    }
+    sqlite3_finalize(missingStmt);
+    if (!missingKeys.empty()) {
+        SyncCoverTileMembershipForKeys(db, missingKeys);
+        target->clear();
+        LoadCoverTileMembershipIdsForKeys(db, tileKeys, target);
+    }
     return !target->empty();
 }
 

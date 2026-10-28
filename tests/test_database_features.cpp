@@ -2814,6 +2814,24 @@ int testCoverWallGroupedSelectionIncludesAllFoldersWithoutFuzzyNeighbors() {
     const auto exactCount = db.searchFilesCount(filter);
     std::cout << "exact ids=" << exactIds << " count=" << exactCount << '\n';
     if (exactIds != 1 || exactCount != 1) ++failures;
+    sqlite3_stmt* deleteMembership = nullptr;
+    if (sqlite3_prepare_v2(db.db(),
+                           "DELETE FROM cover_tile_membership WHERE tile_key = ?",
+                           -1, &deleteMembership, nullptr) == SQLITE_OK) {
+        sqlite3_bind_text(deleteMembership, 1, keyB.c_str(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(deleteMembership) != SQLITE_DONE) ++failures;
+    } else {
+        ++failures;
+    }
+    if (deleteMembership) sqlite3_finalize(deleteMembership);
+    const std::string partlyIndexed =
+        aura::cover_wall::EncodeGroupedCoverWallKeys({keyA, keyB});
+    filter.specificCoverKey = partlyIndexed;
+    const auto repairedIds = db.getFileIdsForCoverTileMembership(partlyIndexed);
+    const auto repairedCount = db.searchFilesCount(filter);
+    std::cout << "partial index group ids=" << repairedIds.size()
+              << " count=" << repairedCount << '\n';
+    if (repairedIds.size() != 2 || repairedCount != 2) ++failures;
     db.close();
     removeDbFamily(dbPath);
     return failures;
