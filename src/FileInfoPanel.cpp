@@ -260,11 +260,12 @@ void RenderFileInfoPageActions(AppState& state, ImVec2 position, float height, f
 }
 
 void RenderFileInfoPanelContent(AppState& state, float panelWidth) {
+    GuardInfoMetadataContext(state);
     auto& pages = state.settings.infoPages;
     pages.Normalize(kDiagnostics);
     if (state.switchToCoverTabAfterRebuild) {
         // A background rebuild must not restore an explicitly hidden entry.
-        if (pages.Select(InfoPage::Artwork,kDiagnostics)) state.settingsDirty = true;
+        if (!state.infoEditSession.active && pages.Select(InfoPage::Artwork,kDiagnostics)) state.settingsDirty = true;
         state.switchToCoverTabAfterRebuild = false;
     }
     const FileInfoPanelChrome chrome = MakeFileInfoPanelChrome();

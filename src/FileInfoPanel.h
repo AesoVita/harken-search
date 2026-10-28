@@ -1,9 +1,13 @@
 #pragma once
 
 #include "imgui.h"
+#include <functional>
 
 struct AppState;
 struct ThemeColorScheme;
+bool RequestInfoMetadataLeave(AppState& state, std::function<void()> afterLeave = {});
+void GuardInfoMetadataContext(AppState& state);
+void RenderInfoMetadataLeavePrompt(AppState& state);
 
 // @stage7-contract
 // API contract: UI-thread drawing of the right file-info panel shell. AppState
