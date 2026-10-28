@@ -42399,12 +42399,6 @@ void RenderUI(AppState& state) {
         const bool needsDbSetup =
             state.viewMode != ViewMode::Browser &&
             state.startupNeedsDatabaseSetup && !state.database.isOpen();
-        const bool showEmptyResultsSurface =
-            state.viewMode != ViewMode::Browser &&
-            !needsDbSetup && state.searchResults.empty() &&
-            !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-            !(state.totalFileCount == 0);
-        constexpr float kEmptyResultsSurfaceHeight = 180.0f;
         ImGuiTableFlags tableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                                       ImGuiTableFlags_Hideable |
                                       ImGuiTableFlags_BordersOuter |
@@ -42537,10 +42531,10 @@ void RenderUI(AppState& state) {
             ImGui::Dummy(ImVec2(availW, lineH));
             if (listFont) ImGui::PopFont();
         };
-        const ImVec2 fileTableOuterSize = showEmptyResultsSurface
-            ? ImVec2(0.0f, -kEmptyResultsSurfaceHeight)
-            : ImVec2(0.0f, 0.0f);
-        ImVec2 adjustedFileTableOuterSize = fileTableOuterSize;
+        // UX #109 follow-up (TASK-20261028-NO-EMPTY-SURFACE): the standalone
+        // empty-results surface was removed at the user's request, so the
+        // results table keeps its full height even with zero rows.
+        ImVec2 adjustedFileTableOuterSize = ImVec2(0.0f, 0.0f);
         if (emptyLibraryFileTable) {
             // Dropping BordersOuter would otherwise let the header fill to the independent frame.
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kResultsTableOuterBorder);
@@ -45404,8 +45398,9 @@ void RenderUI(AppState& state) {
                     LoadMoreResults(state);
                 }
 
-                // UX #109: Empty state guidance is owned by the dedicated empty-database surface.
-                // Keep the results layer empty so it cannot overlap the bottom transport controls.
+                // UX #109: Empty state — the results layer stays empty on
+                // purpose: no row is rendered and no guidance surface is
+                // reserved, so it cannot overlap the bottom transport controls.
 
                 // Apply per-tab scroll restoration only after rows/empty-state
                 // content have established this table's current scroll extent.
@@ -45444,69 +45439,6 @@ void RenderUI(AppState& state) {
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(); // Pop transparent ChildBg for table scroll region
         }
-    }
-
-    // UX #109: Empty state surface — keep guidance in its own bounded child,
-    // outside the results table and above the independent player footer.
-    const bool showStandaloneEmptyResultsSurface =
-        state.viewMode != ViewMode::Browser &&
-        !(state.startupNeedsDatabaseSetup && !state.database.isOpen()) &&
-        state.searchResults.empty() && !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-        !(state.totalFileCount == 0);
-    constexpr float kStandaloneEmptyResultsSurfaceHeight = 180.0f;
-    if (showStandaloneEmptyResultsSurface) {
-        BeginTransientScrollbarChild(
-            "##EmptyResultsSurface",
-            ImVec2(0.0f, kStandaloneEmptyResultsSurfaceHeight),
-            true,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        const bool _hasKw = (state.searchBuffer[0] != '\0');
-        const bool _hasUserCollectionRules =
-            state.activeUserCollectionIdx >= 0 &&
-            state.activeUserCollectionIdx < static_cast<int>(state.userCollections.size()) &&
-            std::any_of(
-                state.userCollections[state.activeUserCollectionIdx].rules.begin(),
-                state.userCollections[state.activeUserCollectionIdx].rules.end(),
-                [](const AppState::CollectionRule& rule) { return rule.value[0] != '\0'; });
-        const auto _hasActivePillState = [](const auto& pillState) {
-            return std::any_of(
-                pillState.begin(), pillState.end(),
-                [](const auto& entry) { return entry.second != 0; });
-        };
-        const bool _hasFilt = state.folderFilterActive || state.coverFilterActive
-            || !state.selectedFolderPath.empty() || !state.coverFilterPath.empty()
-            || state.categoryFilterBuffer[0] != '\0'
-            || state.artistFilterBuffer[0] != '\0'
-            || !state.artistFilterAlternates.empty()
-            || state.albumFilterBuffer[0] != '\0'
-            || state.formatFilterIndex != 0
-            || state.channelFilterIndex != 0
-            || state.sampleRateFilterIndex != 0
-            || state.minDurationFilter > 0.0f || state.maxDurationFilter > 0.0f
-            || state.minBpmFilter > 0.0f || state.maxBpmFilter > 0.0f
-            || state.keyFilterBuffer[0] != '\0'
-            || state.coverFilterIndex != 0
-            || state.findSameFilenameActive
-            || state.activeSmartCollection != SmartCollection::None
-            || _hasUserCollectionRules
-            || _hasActivePillState(state.genrePillState)
-            || _hasActivePillState(state.instrumentPillState)
-            || !(state.showWAV && state.showMP3 && state.showFLAC && state.showOGG &&
-                 state.showAIFF && state.showM4A && state.showWMA && state.showOther);
-        const bool _dbEmpty = (state.totalFileCount == 0);
-        if (_dbEmpty) {
-            ImGui::TextDisabled("%s", L(Empty_NoFiles));
-        } else if (_hasKw && _hasFilt) {
-            ImGui::TextDisabled(L(Empty_FilterAndSearch), state.searchBuffer);
-        } else if (_hasFilt) {
-            ImGui::TextDisabled("%s", L(Empty_FilterOnly));
-        } else if (_hasKw) {
-            ImGui::TextDisabled(L(Empty_SearchOnly), state.searchBuffer);
-            ImGui::TextDisabled("%s", L(Search_NoResultTips));
-        } else {
-            ImGui::TextDisabled("%s", L(Empty_NoResults));
-        }
-        ImGui::EndChild();
     }
 
     // F-034 Relink: merge background candidate results + render inline banner
