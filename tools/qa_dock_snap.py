@@ -53,6 +53,13 @@ def run(args):
         raise AssertionError(snap)
 
     def record(name, snap):
+        if args.info_bounds and not snap['panels']['info']['floating']:
+            from check_info_bounds import violations
+            info = command(cmd='info_page_state')
+            assert info['selected'] == 1, 'Info bounds sweep requires the artwork page'
+            failures = violations({'cases': [dict(name=name, state=info)]})
+            assert not failures, failures
+            snap['info_bounds'] = info
         owner = wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         assert owner.value == process.pid, 'Screenshot process identity changed'
@@ -276,4 +283,5 @@ if __name__ == '__main__':
     parser.add_argument('--vertical', action='store_true', help='Also check results top/bottom in landscape and portrait')
     parser.add_argument('--state-only', action='store_true', help='Check geometry without screenshots; not visual evidence')
     parser.add_argument('--framebuffer', action='store_true', help='Use a local QA-only rendered-frame capture patch')
+    parser.add_argument('--info-bounds', action='store_true', help='Measure Info content in each docked state')
     run(parser.parse_args())

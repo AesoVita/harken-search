@@ -17477,6 +17477,7 @@ static void BeginInfoMetadataEdit(AppState& state, const AudioRecord& record) {
 }
 
 static bool SaveInfoMetadataDraft(AppState& state) {
+    state.infoEditError.clear();
     if (state.database.getMainDbPath()!=state.infoEditDatabasePath || state.infoEditRecords.empty()) return false;
     const auto values=CurrentInfoEditValues(state);
     const auto& old=state.infoEditSession.original;
@@ -17491,8 +17492,12 @@ static bool SaveInfoMetadataDraft(AppState& state) {
     for(const auto& original:state.infoEditRecords) {
         // Resolve by the captured identity, never by the new selection.
         const auto current=state.database.getFileById(original.id);
-        if(current.id!=original.id || current.filePath!=original.filePath ||
-           !Platform::FileSystem::Exists(original.filePath)) return false;
+        if(current.id!=original.id || current.filePath!=original.filePath) return false;
+        if (Platform::FileSystem::IsNetworkPath(original.filePath)) {
+            state.infoEditError = L(Write_BlockedNetworkLibrary);
+            return false;
+        }
+        if (!Platform::FileSystem::Exists(original.filePath)) return false;
         MetadataPatchEntry entry; entry.fileId=original.id;
         if(desc) { entry.oldValues["description"]=current.description; entry.newValues["description"]=values.description; }
         if(keys) { entry.oldValues["keywords"]=current.keywords; entry.newValues["keywords"]=values.keywords; }
@@ -17513,7 +17518,7 @@ void RenderInfoMetadataLeavePrompt(AppState& state) {
     const char* title=L(Info_SaveBeforeLeaving);
     if (!ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
     bool resolved=false;
-    if (ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+    if (BeginTransientScrollbarPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::TextUnformatted(L(Info_SaveBeforeLeavingBody));
         if (!state.infoEditError.empty()) ImGui::TextWrapped("%s",state.infoEditError.c_str());
         const bool yes=ImGui::Button(L(Info_SaveYes),ImVec2(140,0));
@@ -17525,7 +17530,7 @@ void RenderInfoMetadataLeavePrompt(AppState& state) {
             const bool saved=yes && SaveInfoMetadataDraft(state);
             resolved=state.infoEditSession.Resolve(yes,saved);
             if(resolved) ImGui::CloseCurrentPopup();
-            else state.infoEditError=L(Info_SaveFailedKeepEditing);
+            else if (state.infoEditError.empty()) state.infoEditError=L(Info_SaveFailedKeepEditing);
         }
         ImGui::EndPopup();
     }
@@ -40194,11 +40199,12 @@ void RenderUI(AppState& state) {
     // Keep a fixed reserve so the drag hit area cannot cover either button.
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
-                                        ImDrawList* infoDl) {
+                                        ImDrawList* infoDl,
+                                        float pageOffsetY) {
         const float pageAvailableWidth = shell.shellWidth - 28.0f;
         const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
         RenderFileInfoPageActions(infoState,
-            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, 0.0f),
+            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, pageOffsetY),
             shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
@@ -40254,7 +40260,7 @@ void RenderUI(AppState& state) {
         shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
         shell.titleHeight = title.GetHeight();
         ImGui::PushClipRect(title.Min, title.Max, false);
-        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList(), 0.0f);
         ImGui::PopClipRect();
         ImGui::SetCursorPos(saved);
     };
@@ -46048,18 +46054,21 @@ void RenderUI(AppState& state) {
         ImVec2 winPos = ImGui::GetWindowPos();
         const auto& tcs = ThemeColors::current();
         const ImVec4 infoPanelBg = ThemeColors::infoPanelDockBG(tcs);
-        const float rightShellHeight = rightRegionSplit ? rightColumnChildHeight : sideColumnHeight;
+        // The column budget may have reduced the requested panel size.
+        // Both the shell and its contents must use the final child bounds.
+        const ImVec2 rightShellSize = ImGui::GetWindowSize();
+        const float rightShellHeight = rightShellSize.y;
         const DockModuleShellLayout rightShell = drawDockModuleShell(
             dl,
             winPos,
-            infoShellWidth,
+            rightShellSize.x,
             rightShellHeight,
             L(View_InfoPanel),
             infoPanelBg,
             kTitleText);
 
 // 标题栏右上角：编辑元数据图标按钮
-        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl);
+        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl, 2.0f);
 
         // Right-click menu on title bar (remaining area)
         ImGui::SetCursorPos(ImVec2(rightShell.insetL, rightShell.insetT));
@@ -46082,11 +46091,15 @@ void RenderUI(AppState& state) {
         }
 
         // Content area
+        const float kInfoContentTopInset = 8.0f;
+        const float kInfoContentBottomInset = 8.0f;
         const float rightContentWidth = rightShell.shellWidth - rightShell.innerPad * 2.0f;
-        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad, rightShell.insetT + rightShell.titleHeight + 4.0f));
+        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad,
+            rightShell.insetT + rightShell.titleHeight + kInfoContentTopInset));
         BeginTransientScrollbarChild(
             "FileInfoContent",
-            ImVec2(rightContentWidth, rightShellHeight - rightShell.titleHeight - rightShell.insetT - rightShell.insetB - 6.0f),
+            ImVec2(rightContentWidth, std::max(1.0f, rightShellHeight - rightShell.titleHeight -
+                rightShell.insetT - rightShell.insetB - kInfoContentTopInset - kInfoContentBottomInset)),
             false,
             ImGuiWindowFlags_NoScrollbar);
         DevTools_BeginFramePhase("RenderUI.FileInfoPanel");
@@ -51665,7 +51678,7 @@ void RenderUI(AppState& state) {
                 const DockModuleShellLayout shell = drawDockModuleShell(
                     ImGui::GetWindowDrawList(), pos, size.x, size.y,
                     L(View_InfoPanel), bodyBg, kTitleText);
-                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList(), 2.0f);
                 ImGui::SetCursorPos(ImVec2(shell.insetL, shell.insetT));
                 ImGui::InvisibleButton("##DockedFileInfoTitleBar",
                     ImVec2((std::max)(1.0f, shell.shellWidth - kInfoTitleActionsWidth), shell.titleHeight));
@@ -51686,14 +51699,21 @@ void RenderUI(AppState& state) {
                 }
                 ImGui::SetCursorPos(ImVec2(
                     shell.insetL + shell.innerPad,
-                    shell.insetT + shell.titleHeight + 4.0f));
+                    shell.insetT + shell.titleHeight + 8.0f));
+                const float infoContentWidth = std::max(1.0f, shell.shellWidth - shell.innerPad * 2.0f);
+                BeginTransientScrollbarChild(
+                    "FileInfoContent",
+                    ImVec2(infoContentWidth, std::max(1.0f, size.y - shell.titleHeight -
+                        shell.insetT - shell.insetB - 16.0f)),
+                    false,
+                    ImGuiWindowFlags_NoScrollbar);
                 DevTools_BeginFramePhase("RenderUI.FileInfoPanel");
                 {
                     ReadingTextScope _readingInfo;
-                    RenderFileInfoPanelContent(state,
-                        std::max(120.0f, size.x - shell.insetL - shell.insetR - shell.innerPad * 2.0f));
+                    RenderFileInfoPanelContent(state, infoContentWidth);
                 }
                 DevTools_EndFramePhase();
+                ImGui::EndChild();
             }
             if (!open || !state.panelFileInfo.visible) {
                 g_dockLayout.Detach("info");
