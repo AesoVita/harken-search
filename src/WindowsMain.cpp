@@ -58,6 +58,7 @@
 #include "UiHostServices.h"
 #include "platform/platform.h"
 #include "DiagnosticFileLifecycle.h"
+#include "ScanDatabaseOpenDiagnostics.h"
 
 // Legacy compatibility identifier: Auro.AudioFile.
 static constexpr const char* kLegacyAuroAudioFileAssociation = "Auro.AudioFile";
@@ -3102,11 +3103,15 @@ static bool BeginFolderScan(
         Database scanDb;
         const bool scanDbOpen = !scanDbPath.empty() && scanDb.open(scanDbPath);
         if (!scanDbOpen) {
+            const std::string err = scanDb.getLastError().empty()
+                ? std::string("open scan database failed")
+                : scanDb.getLastError();
+            DIAG_SYSTEM("Scan", aura::FormatScanDatabaseOpenFailure(scanDbPath, err, foldersToScan).c_str());
             if (state.isScanTaskCurrent(scanGeneration)) {
-                const std::string err = scanDb.getLastError();
+                const std::string shownErr = err;
                 state.setScanFileKeyStr(LStr::SCAN_FailedFmt,  // H2b: keyed; arg stays literal-diagnostic
-                    err.empty() ? std::string("open scan database failed") : err);
-                state.addScanError(err.empty() ? std::string("open scan database failed") : err);
+                    shownErr);
+                state.addScanError(shownErr);
                 state.scanErrorCount = 1;
                 state.scanFatalFailure.store(true, std::memory_order_release);
             }
