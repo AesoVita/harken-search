@@ -28,8 +28,12 @@ int main() {
             check("hint", p.hintColor, surface);
             for (auto bg : {p.primaryButtonBg,p.primaryButtonHover,p.primaryButtonActive})
                 check("new",p.primaryButtonText,Over(Quantize(bg),surface));
-            for (auto bg : {p.secondaryButtonBg,p.secondaryButtonHover,p.secondaryButtonActive})
+            for (auto bg : {p.secondaryButtonBg,p.secondaryButtonHover,p.secondaryButtonActive}) {
                 check("open",p.secondaryButtonText,Over(Quantize(bg),surface));
+                const auto edgeRatio=Ratio(Over(Quantize(bg),surface),surface);
+                std::printf("theme=%d open-button-surface %.4f\n",id,edgeRatio);
+                if(edgeRatio<3.0) ++failures;
+            }
         }
     }
     std::printf("contrast failures: %d\n", failures);

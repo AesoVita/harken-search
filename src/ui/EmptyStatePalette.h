@@ -6,17 +6,18 @@
 namespace EmptyStatePalette {
 // A single text color must remain readable across all gradient corners and
 // normal/hover/active button fills. Leave a small margin for rasterization.
-inline ImVec4 Readable(ImVec4 preferred, const std::vector<ImVec4>& surfaces) {
+inline ImVec4 Readable(ImVec4 preferred, const std::vector<ImVec4>& surfaces,
+                       double target=4.8, double minimum=4.5) {
     using namespace TransportContrast;
     auto passes = [&](ImVec4 c, double floor) {
         for (auto bg : surfaces)
             if (Ratio(Quantize(c), Quantize(bg)) < floor) return false;
         return true;
     };
-    if (passes(preferred, 4.8)) return preferred;
+    if (passes(preferred, target)) return preferred;
     preferred.w = 1;
-    if (passes(preferred, 4.8)) return preferred;
-    for (double floor : {4.8, 4.5}) {
+    if (passes(preferred, target)) return preferred;
+    for (double floor : {target, minimum}) {
         ImVec4 best = preferred;
         float least = 2;
         for (float end : {0.f, 1.f}) {
@@ -135,6 +136,14 @@ inline Colors Make(const ThemeColorScheme& tcs, ImVec4 hostBackground) {
         Over(Quantize(withAlpha(mixColor(panelBg,tcs.mainWindowBG,.10f),.18f)),base),
         Over(Quantize(withAlpha(mixColor(panelBg,tcs.mainWindowBG,.16f),.24f)),base)};
     const std::vector<ImVec4> panelSurfaces(p.surfaces.begin(),p.surfaces.end());
+    // The secondary action must read as a whole button, not loose text on
+    // the card. Use a muted theme tint with a measurable surface separation.
+    p.secondaryButtonBg=Readable(withAlpha(mixColor(panelBg,tcs.controlAccent,.25f),1),
+        panelSurfaces,3.2,3.05);
+    const float toward=TransportContrast::Luminance(p.secondaryButtonBg)>
+        TransportContrast::Luminance(p.surfaces.front()) ? 1.f : 0.f;
+    p.secondaryButtonHover=mixColor(p.secondaryButtonBg,ImVec4(toward,toward,toward,1),.035f);
+    p.secondaryButtonActive=mixColor(p.secondaryButtonBg,ImVec4(toward,toward,toward,1),.07f);
     p.titleColor=Readable(p.titleColor,panelSurfaces);
     p.bodyColor=Readable(p.bodyColor,panelSurfaces);
     p.hintColor=Readable(p.hintColor,panelSurfaces);

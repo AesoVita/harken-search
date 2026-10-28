@@ -94,8 +94,11 @@ def run(args):
                 pixels=Counter(region.get_flattened_data() if hasattr(region,'get_flattened_data') else region.getdata())
                 strongest=verify_pixels(c,pixels)
                 ratio=min(contrast(c['fg'],b) for b in c['backgrounds'])
+                panel_backgrounds=next(item['backgrounds'] for item in snap['checks'] if item['id']=='title')
+                surface_ratio=min(contrast(a,b) for a,b in zip(c['backgrounds'],panel_backgrounds)) if c['id']=='open' else None
                 checks.append(dict(c, ratio=ratio, pixel_max_contrast=strongest,
-                    status='pass' if min(ratio,strongest)>=4.5 else 'fail'))
+                    button_surface_ratio=surface_ratio,
+                    status='pass' if min(ratio,strongest)>=4.5 and (surface_ratio is None or surface_ratio>=3) else 'fail'))
             after=driver.command({'cmd':'empty_state_audit'})
             if after['theme']!=theme or after['frame']<snap['frame']: raise RuntimeError('Theme changed during capture')
             if after['checks']!=snap['checks'] or after['panel']!=snap['panel']:
