@@ -25341,7 +25341,9 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     const ImU32 muted = ImGui::GetColorU32(TransportContrast::ForSurface(
         ImVec4(primaryText.x, primaryText.y, primaryText.z, .48f), transportSurface, 4.7));
     const auto navyEq = MistBlueChrome::EqState(theme, transportSurface, settings.enabled, toggleHit, toggleHit && held);
-    const ImVec4 statusColor = navyStateContrast ? navyEq.signal : TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
+    const ImVec4 navyBandColor = settings.enabled && settings.mode == MagicEQMode::Notch
+        ? theme.waveformPositionLine : navyEq.signal;
+    const ImVec4 statusColor = navyStateContrast ? navyBandColor : TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
         : (settings.mode == MagicEQMode::Notch ? theme.waveformSelectionEdge : theme.controlAccent), transportSurface, 3.2);
     const ImU32 status = ImGui::GetColorU32(statusColor);
     ImDrawList* draw = window->DrawList;
@@ -25486,7 +25488,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     draw->AddLine(ImVec2(railLeft, railY), ImVec2(railRight, railY),
                   navyStateContrast && !settings.enabled ? status : muted,
                   navyStateContrast && !settings.enabled ? 1.0f : 2.0f);
-    const float bandAlpha = navyStateContrast && !settings.enabled ? 0.f : (settings.enabled ? .42f : .20f);
+    const float bandAlpha = navyStateContrast && !settings.enabled ? 0.f
+        : (settings.enabled ? (navyStateContrast ? .60f : .42f) : .20f);
     draw->AddRectFilled(ImVec2(leftX, railY - 4.5f), ImVec2(rightX, railY + 4.5f),
                         ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    bandAlpha)), 4.5f);
