@@ -369,11 +369,20 @@ void InvalidateSimilarSoundsWindow(AppState& state) {
 static void DrawSimilarSoundsBody(AppState& state, bool windowFocused) {
     HarkenSearch::SimilarityWorkflow& workflow = *state.similarSoundsWorkflow;
     HarkenSearch::SimilarityWorkflowSnapshot snapshot = workflow.Snapshot();
+    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
+    if (layeredNavy) {
+        // The dock host can be light even while this module uses navy children.
+        // Paint one continuous module surface behind their spacing and separators.
+        const ImVec2 min = ImGui::GetCursorScreenPos();
+        const ImVec2 max(min.x + ImGui::GetContentRegionAvail().x,
+            ImGui::GetWindowPos().y + ImGui::GetWindowSize().y - ImGui::GetStyle().WindowPadding.y);
+        ImGui::GetWindowDrawList()->AddRectFilled(min, max,
+            ImGui::GetColorU32(ThemeColors::current().metadataPanelBG));
+    }
     if (DrawSimilarSoundsActionRow(state, workflow, snapshot)) {
         snapshot = workflow.Snapshot();
     }
-    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
-        !state.settings.useCustomColors && !ThemeColors::customized();
     if (layeredNavy) {
         ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().dialogPanelBG);
         if (ImGui::BeginChild("##SimilarIndexRegion", ImVec2(0.0f, 0.0f),
