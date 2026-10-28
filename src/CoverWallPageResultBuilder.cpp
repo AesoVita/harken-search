@@ -84,13 +84,19 @@ std::string BuildCoverWallVisualDedupeToken(const CoverModule::CoverItem& item) 
 void AppendUniqueCoverWallPageItems(std::vector<CoverModule::CoverItem>& existing,
                                     std::vector<CoverModule::CoverItem>& nextPage) {
     std::unordered_set<std::string> seenTokens;
+    std::unordered_set<std::string> seenKeys;
     seenTokens.reserve(existing.size() + nextPage.size());
+    seenKeys.reserve(existing.size() + nextPage.size());
     for (const auto& item : existing) {
         seenTokens.insert(BuildCoverWallVisualDedupeToken(item));
+        seenKeys.insert(item.key);
     }
     for (auto& item : nextPage) {
         const std::string token = BuildCoverWallVisualDedupeToken(item);
-        if (!item.key.empty() && !token.empty() && seenTokens.insert(token).second) {
+        if (item.key.empty() || token.empty()) continue;
+        const bool newKey = seenKeys.insert(item.key).second;
+        const bool newToken = seenTokens.insert(token).second;
+        if (newKey && newToken) {
             existing.push_back(std::move(item));
         }
     }
@@ -104,15 +110,13 @@ CoverWallPageLoadResult BuildCoverWallPageLoadResult(const Database::CoverWallPa
     result.largeLibrary = page.largeLibrary;
     result.registryEntries = page.registryEntries;
     result.items.reserve(page.entries.size());
-    std::unordered_set<std::string> seenTokens;
-    seenTokens.reserve(page.entries.size());
+    std::vector<CoverModule::CoverItem> converted;
+    converted.reserve(page.entries.size());
     for (const auto& entry : page.entries) {
         if (entry.key.empty() || entry.path.empty()) continue;
-        CoverModule::CoverItem item = ConvertCoverWallEntryToItem(entry);
-        const std::string dedupeToken = BuildCoverWallVisualDedupeToken(item);
-        if (item.key.empty() || dedupeToken.empty() || !seenTokens.insert(dedupeToken).second) continue;
-        result.items.push_back(std::move(item));
+        converted.push_back(ConvertCoverWallEntryToItem(entry));
     }
+    AppendUniqueCoverWallPageItems(result.items, converted);
     SanitizeCoverWallItemsForCache(result.items);
     return result;
 }

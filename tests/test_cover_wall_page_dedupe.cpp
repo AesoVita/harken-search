@@ -75,6 +75,16 @@ int main() {
         {"?|C:/similar/b", "C:/similar/b", "C:/covers/similar-b.jpg", false},
     }});
     const bool distinctFilesRemain = distinct.items.size() == 2;
+    auto sameKey = aura::cover_wall::BuildCoverWallPageLoadResult({{
+        {"F|H|same|123", "C:/one", "C:/covers/one.jpg", false},
+        {"F|H|same|123", "C:/two", "C:/covers/two.jpg", false},
+    }});
+    const bool sameKeyAcrossSourcesCollapses = sameKey.items.size() == 1;
+    auto sameKeyNextPage = aura::cover_wall::BuildCoverWallPageLoadResult({{
+        {"F|H|same|123", "C:/three", "C:/covers/three.jpg", false},
+    }});
+    aura::cover_wall::AppendUniqueCoverWallPageItems(sameKey.items, sameKeyNextPage.items);
+    const bool sameKeyAcrossPagesCollapses = sameKey.items.size() == 1;
     auto appended = first.items;
     aura::cover_wall::AppendUniqueCoverWallPageItems(appended, second.items);
     const bool repeatedPageSkipped = appended.size() == 2;
@@ -88,5 +98,6 @@ int main() {
               << " distinct page appended=" << distinctPageAppended
               << " distinct files=" << distinctFilesRemain << '\n';
     return onePerSource && sameAcrossPages && mixedLegacyKeysCollapse &&
-           repeatedPageSkipped && distinctPageAppended && distinctFilesRemain ? 0 : 1;
+           repeatedPageSkipped && distinctPageAppended && distinctFilesRemain &&
+           sameKeyAcrossSourcesCollapses && sameKeyAcrossPagesCollapses ? 0 : 1;
 }
