@@ -39956,8 +39956,7 @@ void RenderUI(AppState& state) {
                                    float panelHeight,
                                    const char* title,
                                    const ImVec4& bodyBg,
-                                   ImU32 titleColor,
-                                   bool omitPerimeter = false) {
+                                   ImU32 titleColor) {
         DockModuleShellLayout layout;
         layout.shellWidth = (std::max)(120.0f, panelWidth - layout.insetL - layout.insetR);
         layout.shellMin = ImVec2(winPos.x + layout.insetL, winPos.y + layout.insetT);
@@ -40007,20 +40006,18 @@ void RenderUI(AppState& state) {
             kFilterInfoShellRadius,
             contentRoundFlags);
         drawDockTitleBar(dl, layout.shellMin, layout.shellWidth, layout.titleHeight, title, titleColor, titleRoundFlags);
-        if (!omitPerimeter) {
-            dl->AddLine(
-                ImVec2(layout.contentMin.x + 0.5f, layout.contentMin.y + 0.5f),
-                ImVec2(layout.contentMax.x - 0.5f, layout.contentMin.y + 0.5f),
-                ImGui::GetColorU32(workspacePalette.splitter),
-                aura::ui::workspace::kCoreWorkspaceMetrics.splitterWidth);
-            dl->AddRect(
-                ImVec2(layout.shellMin.x + 0.5f, layout.shellMin.y + 0.5f),
-                ImVec2(layout.shellMax.x - 0.5f, layout.shellMax.y - 0.5f),
-                ImGui::GetColorU32(moduleEdge),
-                kFilterInfoShellRadius,
-                shellRoundFlags,
-                aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
-        }
+        dl->AddLine(
+            ImVec2(layout.contentMin.x + 0.5f, layout.contentMin.y + 0.5f),
+            ImVec2(layout.contentMax.x - 0.5f, layout.contentMin.y + 0.5f),
+            ImGui::GetColorU32(workspacePalette.splitter),
+            aura::ui::workspace::kCoreWorkspaceMetrics.splitterWidth);
+        dl->AddRect(
+            ImVec2(layout.shellMin.x + 0.5f, layout.shellMin.y + 0.5f),
+            ImVec2(layout.shellMax.x - 0.5f, layout.shellMax.y - 0.5f),
+            ImGui::GetColorU32(moduleEdge),
+            kFilterInfoShellRadius,
+            shellRoundFlags,
+            aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
         return layout;
     };
 
@@ -51591,8 +51588,7 @@ void RenderUI(AppState& state) {
                     leaf.rect.height,
                     L(Similar_Title),
                     similarBody,
-                    kTitleText,
-                    navySimilar);
+                    kTitleText);
                 ImGui::SetCursorPos(ImVec2(similarShell.insetL, similarShell.insetT));
                 ImGui::InvisibleButton("##DockedSimilarSoundsTitle",
                     ImVec2(similarShell.shellWidth, similarShell.titleHeight));
@@ -51620,15 +51616,17 @@ void RenderUI(AppState& state) {
                     }
                     ImGui::EndPopup();
                 }
+                const float similarContentInset = navySimilar ? 4.0f : 0.0f;
                 ImGui::SetCursorPos(ImVec2(
-                    similarShell.insetL + similarShell.innerPad,
-                    similarShell.insetT + similarShell.titleHeight + 4.0f));
+                    similarShell.insetL + similarShell.innerPad + similarContentInset,
+                    similarShell.insetT + similarShell.titleHeight + 4.0f + similarContentInset));
                 const float similarContentWidth = std::max(1.0f,
                     leaf.rect.width - similarShell.insetL - similarShell.insetR -
-                        similarShell.innerPad * 2.0f);
+                        similarShell.innerPad * 2.0f - similarContentInset * 2.0f);
                 const float similarContentHeight = std::max(1.0f,
                     leaf.rect.height - similarShell.insetT - similarShell.insetB -
-                        similarShell.titleHeight - 8.0f);
+                        similarShell.titleHeight - 8.0f - similarContentInset * 2.0f);
+                const ImVec2 similarContentMin = ImGui::GetCursorScreenPos();
                 if (ImGui::BeginChild(
                         "##DockedSimilarSoundsContent",
                         ImVec2(similarContentWidth, similarContentHeight),
@@ -51639,6 +51637,16 @@ void RenderUI(AppState& state) {
                     aura::ui::RenderSimilarSoundsContent(state);
                 }
                 ImGui::EndChild();
+                if (navySimilar) {
+                    similarDl->AddRect(
+                        similarContentMin,
+                        ImVec2(similarContentMin.x + similarContentWidth,
+                               similarContentMin.y + similarContentHeight),
+                        ImGui::GetColorU32(ThemeColors::infoPanelDockEdge(similarTheme)),
+                        kFilterInfoShellRadius,
+                        ImDrawFlags_RoundCornersAll,
+                        aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
+                }
             }
             if (!open) {
                 FloatDockedPanel("similar-sounds", state.panelSimilarSounds, leaf.rect);
