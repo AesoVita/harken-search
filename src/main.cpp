@@ -40165,11 +40165,12 @@ void RenderUI(AppState& state) {
     // Keep a fixed reserve so the drag hit area cannot cover either button.
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
-                                        ImDrawList* infoDl) {
+                                        ImDrawList* infoDl,
+                                        float pageOffsetY) {
         const float pageAvailableWidth = shell.shellWidth - 28.0f;
         const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
         RenderFileInfoPageActions(infoState,
-            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, 0.0f),
+            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, pageOffsetY),
             shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
@@ -40225,7 +40226,7 @@ void RenderUI(AppState& state) {
         shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
         shell.titleHeight = title.GetHeight();
         ImGui::PushClipRect(title.Min, title.Max, false);
-        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList(), 0.0f);
         ImGui::PopClipRect();
         ImGui::SetCursorPos(saved);
     };
@@ -46020,18 +46021,21 @@ void RenderUI(AppState& state) {
         ImVec2 winPos = ImGui::GetWindowPos();
         const auto& tcs = ThemeColors::current();
         const ImVec4 infoPanelBg = ThemeColors::infoPanelDockBG(tcs);
-        const float rightShellHeight = rightRegionSplit ? rightColumnChildHeight : availHeight;
+        // The column budget may have reduced the requested panel size.
+        // Both the shell and its contents must use the final child bounds.
+        const ImVec2 rightShellSize = ImGui::GetWindowSize();
+        const float rightShellHeight = rightShellSize.y;
         const DockModuleShellLayout rightShell = drawDockModuleShell(
             dl,
             winPos,
-            infoShellWidth,
+            rightShellSize.x,
             rightShellHeight,
             L(View_InfoPanel),
             infoPanelBg,
             kTitleText);
 
 // 标题栏右上角：编辑元数据图标按钮
-        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl);
+        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl, 2.0f);
 
         // Right-click menu on title bar (remaining area)
         ImGui::SetCursorPos(ImVec2(rightShell.insetL, rightShell.insetT));
@@ -46054,11 +46058,15 @@ void RenderUI(AppState& state) {
         }
 
         // Content area
+        const float kInfoContentTopInset = 8.0f;
+        const float kInfoContentBottomInset = 8.0f;
         const float rightContentWidth = rightShell.shellWidth - rightShell.innerPad * 2.0f;
-        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad, rightShell.insetT + rightShell.titleHeight + 4.0f));
+        ImGui::SetCursorPos(ImVec2(rightShell.insetL + rightShell.innerPad,
+            rightShell.insetT + rightShell.titleHeight + kInfoContentTopInset));
         BeginTransientScrollbarChild(
             "FileInfoContent",
-            ImVec2(rightContentWidth, rightShellHeight - rightShell.titleHeight - rightShell.insetT - rightShell.insetB - 6.0f),
+            ImVec2(rightContentWidth, std::max(1.0f, rightShellHeight - rightShell.titleHeight -
+                rightShell.insetT - rightShell.insetB - kInfoContentTopInset - kInfoContentBottomInset)),
             false,
             ImGuiWindowFlags_NoScrollbar);
         DevTools_BeginFramePhase("RenderUI.FileInfoPanel");
@@ -51636,7 +51644,7 @@ void RenderUI(AppState& state) {
                 const DockModuleShellLayout shell = drawDockModuleShell(
                     ImGui::GetWindowDrawList(), pos, size.x, size.y,
                     L(View_InfoPanel), bodyBg, kTitleText);
-                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList(), 2.0f);
                 ImGui::SetCursorPos(ImVec2(shell.insetL, shell.insetT));
                 ImGui::InvisibleButton("##DockedFileInfoTitleBar",
                     ImVec2((std::max)(1.0f, shell.shellWidth - kInfoTitleActionsWidth), shell.titleHeight));
