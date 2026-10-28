@@ -61,6 +61,7 @@
 #include "FileBrowser.h"
 #include "CoverReplacementFoundation.h"
 #include "Database.h"
+#include "ScanDatabaseOpenDiagnostics.h"
 #include "PathUtils.h"  // Canonical folder filters and scroll targets.
 #include "FolderTreeContextActions.h"
 #include "SearchQuery.h"
@@ -31593,6 +31594,7 @@ void RenderUI(AppState& state) {
                     if (!scanDbOpen) {
                         std::string err = scanDb.getLastError();
                         if (err.empty()) err = "open scan database failed";
+                        DIAG_SYSTEM("Scan", aura::FormatScanDatabaseOpenFailure(scanDbPath, err, foldersToScan).c_str());
                         if (state.isScanTaskCurrent(scanGeneration)) {
                             state.setScanFileKeyStr(LStr::SCAN_FailedFmt, err);
                             state.addScanError(err);
