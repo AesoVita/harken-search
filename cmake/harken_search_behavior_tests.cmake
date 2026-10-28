@@ -6539,6 +6539,18 @@ endif()
 add_test(NAME TestEmergencyFileWriter COMMAND TestEmergencyFileWriter)
 aura_set_test_labels(TestEmergencyFileWriter core)
 
+add_executable(TestScanDatabaseOpenDiagnostics EXCLUDE_FROM_ALL
+    tests/test_scan_database_open_diagnostics.cpp
+    src/ScanDatabaseOpenDiagnostics.cpp
+)
+target_include_directories(TestScanDatabaseOpenDiagnostics PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_features(TestScanDatabaseOpenDiagnostics PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestScanDatabaseOpenDiagnostics PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME TestScanDatabaseOpenDiagnostics COMMAND TestScanDatabaseOpenDiagnostics)
+aura_set_test_labels(TestScanDatabaseOpenDiagnostics core)
+
 add_executable(TestDiagnosticsLoggerPersistence EXCLUDE_FROM_ALL
     tests/test_diagnostics_logger_persistence.cpp
     src/DiagnosticsLogger.cpp

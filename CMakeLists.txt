@@ -956,7 +956,7 @@ endif()
 # 诊断模块：开发构建用完整实现，上线用 Stub + DevTools 头文件内联空实现
 list(APPEND APP_SOURCES src/DiagnosticFileLifecycle.cpp)
 if(AURA_BUILD_DIAGNOSTICS)
-    list(APPEND APP_SOURCES src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
+    list(APPEND APP_SOURCES src/ScanDatabaseOpenDiagnostics.cpp src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
 else()
     list(APPEND APP_SOURCES src/DiagnosticsLoggerStub.cpp src/UserActionLogStub.cpp)
 endif()
