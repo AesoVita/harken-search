@@ -6,8 +6,7 @@ provides an isolated QA package and profile with a library and Info visible.
 from __future__ import annotations
 
 import argparse
-import ctypes
-from ctypes import wintypes
+import ctypes.wintypes
 import hashlib
 import json
 import os
@@ -60,7 +59,7 @@ def run(args):
             failures = violations({'cases': [dict(name=name, state=info)]})
             assert not failures, failures
             snap['info_bounds'] = info
-        owner = wintypes.DWORD()
+        owner = ctypes.wintypes.DWORD()
         user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner))
         assert owner.value == process.pid, 'Screenshot process identity changed'
         if args.state_only:
@@ -84,8 +83,8 @@ def run(args):
                 break
             if time.monotonic() >= deadline:
                 shot.save(output / (name + '-unrendered.png'))
-                cloaked = wintypes.DWORD()
-                ctypes.WinDLL('dwmapi').DwmGetWindowAttribute(wintypes.HWND(hwnd), 14, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
+                cloaked = ctypes.wintypes.DWORD()
+                ctypes.WinDLL('dwmapi').DwmGetWindowAttribute(ctypes.wintypes.HWND(hwnd), 14, ctypes.byref(cloaked), ctypes.sizeof(cloaked))
                 raise AssertionError(f'Unrendered screenshot: visible={user32.IsWindowVisible(hwnd)}, iconic={user32.IsIconic(hwnd)}, cloaked={cloaked.value}, size={shot.size}')
             time.sleep(.2)
         path = output / (name + '.png')
@@ -124,7 +123,7 @@ def run(args):
         command(cmd='info_page_layout', floating=True, width=480)
         command(cmd='dock_pointer', phase='focus')
         initial = settled(lambda s: s['panels'].get('info', {}).get('floating', False))
-        rect, origin = wintypes.RECT(), wintypes.POINT(0, 0)
+        rect, origin = ctypes.wintypes.RECT(), ctypes.wintypes.POINT(0, 0)
         assert user32.GetClientRect(hwnd, ctypes.byref(rect))
         assert user32.ClientToScreen(hwnd, ctypes.byref(origin))
         center = (origin.x + rect.right * .52, origin.y + rect.bottom * .35)
@@ -251,6 +250,49 @@ def run(args):
                     assert abs(snap['panels'][module][key] - saved['panels'][module][key]) <= 2, (module, key, saved, snap)
             record('portrait-restart-keeps-layout', snap)
 
+            if getattr(args, 'resize_boundaries', False):
+                command(cmd='similar_index', action='open', floating=True, width=640, height=360)
+                snap = settled(lambda s: s['panels'].get('similar-sounds', {}).get('floating', False))
+                results = snap['panels']['search-results']
+                x, y = results['x'] + results['w'] * .5, results['y'] + 10
+                begin('similar-sounds'); move(x, y); snap = release(x, y)
+                assert snap['layout'][2:] == ['similar-sounds', 'info'], snap
+                user32.SetWindowPos(hwnd, None, 40, 40, 900, 700, 0x0014)
+                snap = settled(lambda s: s['panels']['info']['floating'])
+                assert snap['panels']['search-results']['h'] >= 199, snap
+                user32.GetClientRect(hwnd, ctypes.byref(rect))
+                user32.ClientToScreen(hwnd, ctypes.byref(origin))
+                for panel in snap['panels'].values():
+                    if not panel['floating']:
+                        assert panel['y'] + panel['h'] <= origin.y + rect.bottom, snap
+                record('short-window-floats-overflow', snap)
+                command(cmd='info_edit_input', action='exit'); process.wait(timeout=15)
+                hwnd = None; process = launch()
+                identity2 = driver.command({'cmd':'magic_eq_identity'}, timeout=60)
+                assert identity2['pid'] == process.pid and Path(identity2['exe_path']).resolve() == exe
+                hwnd = identity2['hwnd']
+                deadline = time.monotonic() + 45
+                while not command(cmd='magic_eq_state')['main_ui_ready']:
+                    assert time.monotonic() < deadline
+                    time.sleep(.1)
+                if (exe.parent/'qa-narration.json').is_file():
+                    command(cmd='qa_narration', action='close')
+                snap = settled(lambda s: s['panels']['info']['floating'])
+                record('short-window-restart-retains-float', snap)
+                user32.SetWindowPos(hwnd, None, 40, 40, 680, 1000, 0x0014)
+                command(cmd='similar_index', action='open', floating=True, width=640, height=360)
+                command(cmd='dock_pointer', phase='focus')
+                snap = settled(lambda s: s['panels'].get('similar-sounds', {}).get('floating', False))
+                results = snap['panels']['search-results']
+                assert results['w'] < 420, results
+                x, y = results['x'] + results['w'] * .5, results['y'] + 10
+                begin('similar-sounds'); snap = move(x, y)
+                assert snap['preview_kind'] == 0 and snap['drop_too_small'], snap
+                snap = release(x, y)
+                assert snap['panels']['similar-sounds']['floating'], snap
+                record('narrow-window-rejects-wide-band', snap)
+                command(cmd='similar_index', action='close')
+
         # Return to the original floating setup so the package is ready for
         # the user's center-versus-edge comparison.
         command(cmd='info_page_layout', floating=True, width=480)
@@ -284,4 +326,5 @@ if __name__ == '__main__':
     parser.add_argument('--state-only', action='store_true', help='Check geometry without screenshots; not visual evidence')
     parser.add_argument('--framebuffer', action='store_true', help='Use a local QA-only rendered-frame capture patch')
     parser.add_argument('--info-bounds', action='store_true', help='Measure Info content in each docked state')
+    parser.add_argument('--resize-boundaries', action='store_true', help='Check narrow drops, shrink overflow and restart recovery')
     run(parser.parse_args())

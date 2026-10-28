@@ -1181,6 +1181,13 @@ inline DockDropPlan PlanReadableDockDrop(
     // still need more width when its target leaf already sits beside another
     // leaf; growing only the requested axis would reject that recursive drop.
     auto& targetSlot = DockSlotForSide(plan.slots, root);
+    if ((root == DockSide::Top || root == DockSide::Bottom) &&
+        targetSlot.width + .5f < rootMinimum.width) {
+        // The renderer gives bands exactly the central column's width.
+        // It cannot honor a preview that silently expands into a sidebar.
+        plan.tooSmall = true;
+        return plan;
+    }
     targetSlot.width = std::max(targetSlot.width, rootMinimum.width);
     targetSlot.height = std::max(targetSlot.height, rootMinimum.height);
     if (root == DockSide::Right)

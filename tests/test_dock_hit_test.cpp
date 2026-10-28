@@ -807,6 +807,24 @@ int main() {
                    "a vertical drop must leave 200px for the results or be rejected")) return 1;
     }
 
+    // A vertical preview cannot borrow width that the central renderer lacks.
+    for (const char* incoming : {"similar-sounds", "mod-workflow"}) {
+        DockLayout narrow;
+        narrow.InsertModule("filter", DockSide::Left, .24f);
+        DockRootSlots slots{};
+        slots.left = {0,80,300,900};
+        slots.top = {312,80,388,220};
+        slots.bottom = {312,760,388,220};
+        for (auto side : {DockSide::Top, DockSide::Bottom}) {
+            DockHit drop;
+            drop.kind=DockHitKind::Main; drop.side=drop.rootRegion=side;
+            drop.preferredRootExtent=220;
+            const auto plan=PlanReadableDockDrop(narrow,drop,incoming,{0,0,700,1200},80,0,slots);
+            if (!Check(!plan.accepted && plan.tooSmall,
+                       "narrow central column rejects a wider vertical module")) return 1;
+        }
+    }
+
     // Regression: a real workspace keeps the right utility root at 720px and
     // may report a 24% fallback for an empty left root while the filter is
     // floating. Re-docking the filter must use its remembered 300px column

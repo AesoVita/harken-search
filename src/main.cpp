@@ -38278,15 +38278,7 @@ void RenderUI(AppState& state) {
         if (id == "mod-transfer") return state.panelTransfer.dockedHeight;
         return 0.0f;
     };
-    const aura::ui::dock::DockBandReserve dockBandReserve =
-        aura::ui::dock::ResolveDockBandReserve(
-            g_dockLayout, dockSavedHeight,
-            std::clamp(mainWorkH * 0.20f, 96.0f, 240.0f), viewport->DpiScale);
-    const float topDockBandHeight = dockBandReserve.top;
-    const float bottomDockBandHeight = dockBandReserve.bottom;
     const float dockBandSplitter = aura::ui::dock::kDockBandSplitterHeight;
-    const float topDockReserve = topDockBandHeight > 0.0f ? topDockBandHeight + dockBandSplitter : 0.0f;
-    const float bottomDockReserve = bottomDockBandHeight > 0.0f ? bottomDockBandHeight + dockBandSplitter : 0.0f;
 
     // The waveform remains rendered by the fixed legacy workspace band; it is
     // deliberately absent from the Dock tree and from all Dock split math.
@@ -39992,19 +39984,48 @@ void RenderUI(AppState& state) {
     // bar could be pushed into the parent clip rect and appear cut off.
     const bool showDockedWaveform = state.panelWaveform.visible && !state.panelWaveform.floating && !layoutVeryShortHeight;
     const float waveformSplitterReserve = showDockedWaveform ? 6.0f : 0.0f;
-    const bool hasBottomDockRegion =
-        g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Bottom) != nullptr;
     const float startupListOffsetReserve = 15.0f * (1.0f - t);
     const float startupWaveformOffsetReserve =
         showDockedWaveform ? 40.0f * (1.0f - t) : 0.0f;
     const float reservedStatusBarHeight = showDockedWaveform ? 0.0f : statusBarHeight;
     const float statusBottomLayoutReserve =
         showDockedWaveform ? 0.0f : std::max(2.0f, ImGui::GetStyle().FramePadding.y + 1.0f);
-    float fixedOverhead = toolbarHeight + menuBarHeight + reservedStatusBarHeight +
-                          waveformSplitterReserve + topDockReserve + bottomDockReserve +
-                          statusBottomLayoutReserve + startupListOffsetReserve +
-                          startupWaveformOffsetReserve + 13.0f;
     const float minContentHeight = layoutVeryShortHeight ? 240.0f : (layoutShortHeight ? 220.0f : 200.0f);
+    const float playlistQuickBarHeight = state.settings.showPlaylistQuickBar ? 36.0f : 0.0f;
+    const float baseOverhead = toolbarHeight + menuBarHeight + reservedStatusBarHeight +
+        waveformSplitterReserve + statusBottomLayoutReserve + startupListOffsetReserve +
+        startupWaveformOffsetReserve + 13.0f;
+    const float minimumWaveform = showDockedWaveform ? (layoutShortHeight ? 96.0f : 150.0f) : 0.0f;
+    const float bandCenterWidth = std::max(1.0f, mainWorkW -
+        (leftDockSlotRequired ? leftDockColumnWidth + splitterWidth : 0.0f) -
+        (rightDockSlotRequired ? rightDockColumnWidth + splitterWidth : 0.0f));
+    const auto dockBandReserve = aura::ui::dock::ResolveDockBandReserve(
+        g_dockLayout, dockSavedHeight, std::clamp(mainWorkH * .20f, 96.0f, 240.0f),
+        viewport->DpiScale, mainWorkH - baseOverhead - playlistQuickBarHeight - minimumWaveform,
+        bandCenterWidth, minContentHeight);
+    const auto floatOverflowBand = [&](aura::ui::dock::DockSide side, bool overflow) {
+        if (!overflow) return;
+        struct Entry { const char* id; PanelState* panel; };
+        const Entry entries[] = {{"filter", &state.panelSidebar}, {"info", &state.panelFileInfo},
+            {"similar-sounds", &state.panelSimilarSounds}, {"search-results", &g_searchResultsDockPanel},
+            {"mod-ucs-browser", &state.panelUCSBrowser}, {"mod-tag-browser", &state.panelTagBrowser},
+            {"mod-workflow", &state.panelWorkflow}, {"mod-transfer", &state.panelTransfer}};
+        for (const auto& entry : entries) {
+            if (!moduleDockedInRegion(entry.id, side)) continue;
+            auto& panel = *entry.panel;
+            const auto minimum = aura::ui::dock::DockModuleMinimum(entry.id, viewport->DpiScale);
+            if (FloatDockedPanel(entry.id, panel, {panel.floatX, panel.floatY,
+                    std::max(panel.floatW, minimum.width), std::max(panel.floatH, minimum.height)}))
+                state.settingsDirty = true;
+        }
+    };
+    floatOverflowBand(aura::ui::dock::DockSide::Bottom, dockBandReserve.floatBottom);
+    floatOverflowBand(aura::ui::dock::DockSide::Top, dockBandReserve.floatTop);
+    const float topDockBandHeight = dockBandReserve.top;
+    const float bottomDockBandHeight = dockBandReserve.bottom;
+    const float topDockReserve = topDockBandHeight > 0.0f ? topDockBandHeight + dockBandSplitter : 0.0f;
+    const float bottomDockReserve = bottomDockBandHeight > 0.0f ? bottomDockBandHeight + dockBandSplitter : 0.0f;
+    float fixedOverhead = baseOverhead + topDockReserve + bottomDockReserve;
     float maxWaveformH = std::max(layoutShortHeight ? 96.0f : 150.0f, mainWorkH - fixedOverhead - minContentHeight);
     const float minWaveformH = 96.0f;
     float waveformPanelHeight = 0.0f;
@@ -40014,7 +40035,6 @@ void RenderUI(AppState& state) {
             : state.panelWaveform.dockedHeight;
         waveformPanelHeight = std::min(desiredWaveformH, maxWaveformH);
     }
-    const float playlistQuickBarHeight = state.settings.showPlaylistQuickBar ? 36.0f : 0.0f;
     const float waveBandHeight = waveformPanelHeight + playlistQuickBarHeight;
     float totalFixedHeight = fixedOverhead + waveformPanelHeight + playlistQuickBarHeight;
     float availHeight = mainWorkH - totalFixedHeight;
