@@ -1,6 +1,8 @@
 #pragma once
 
 #include "imgui.h"
+#include "imgui_internal.h"
+#include <cmath>
 #include <iomanip>
 #include <locale>
 #include <sstream>
@@ -16,6 +18,8 @@ struct Check {
     ImU32 foreground, background;
     ImVec2 min, max;
     bool disabled;
+    ImVec2 clipMin, clipMax;
+    bool glyphBounds;
 };
 inline int collectUntil = -1, frame = -1, theme = -1;
 inline int spectrumCollapse = 0;
@@ -40,7 +44,43 @@ inline void Begin(int themeId, ImVec2 min, ImVec2 max, ImU32 background) {
 inline void Record(const char* id, bool text, ImU32 foreground, ImU32 background,
                    ImVec2 min, ImVec2 max, bool disabled = false) {
     if (!Collecting() || frame != ImGui::GetFrameCount()) return;
-    checks.push_back({id, text, foreground, Over(background, surface), min, max, disabled});
+    auto* draw = ImGui::GetWindowDrawList();
+    checks.push_back({id, text, foreground, Over(background, surface), min, max, disabled,
+        draw->GetClipRectMin(), draw->GetClipRectMax(), false});
+}
+// Match AddText's unwrapped glyph geometry before clipping, including font
+// scale and pixel snapping. A line-height rectangle is not the visible ink.
+inline void Text(const char* id, ImU32 foreground, ImU32 background,
+                 ImVec2 position, const char* text, ImFont* font = nullptr, float size = 0) {
+    if (!Collecting() || frame != ImGui::GetFrameCount()) return;
+    if (!font) font = ImGui::GetFont();
+    if (size <= 0) size = ImGui::GetFontSize();
+    auto* baked = font->GetFontBaked(size);
+    const float scale = size / baked->Size, startX = std::trunc(position.x);
+    float x = startX, y = std::trunc(position.y);
+    ImVec2 inkMin(FLT_MAX, FLT_MAX), inkMax(-FLT_MAX, -FLT_MAX);
+    bool visible = false;
+    while (*text) {
+        unsigned int codepoint;
+        const int bytes = ImTextCharFromUtf8(&codepoint, text, nullptr);
+        if (bytes <= 0) break;
+        text += bytes;
+        if (codepoint == '\n') { x = startX; y += size; continue; }
+        if (codepoint == '\r') continue;
+        const auto* glyph = baked->FindGlyph(static_cast<ImWchar>(codepoint));
+        if (!glyph) continue;
+        if (glyph->Visible) {
+            inkMin.x = ImMin(inkMin.x, x + glyph->X0 * scale);
+            inkMin.y = ImMin(inkMin.y, y + glyph->Y0 * scale);
+            inkMax.x = ImMax(inkMax.x, x + glyph->X1 * scale);
+            inkMax.y = ImMax(inkMax.y, y + glyph->Y1 * scale);
+            visible = true;
+        }
+        x += glyph->AdvanceX * scale;
+    }
+    if (!visible) return;
+    Record(id, true, foreground, background, inkMin, inkMax);
+    checks.back().glyphBounds = true;
 }
 inline void Item(const char* id, bool text, ImU32 foreground, ImU32 background, bool disabled = false) {
     Record(id, text, foreground, background, ImGui::GetItemRectMin(), ImGui::GetItemRectMax(), disabled);
@@ -54,7 +94,7 @@ inline std::string Json() {
         out << '[' << ((c >> IM_COL32_R_SHIFT) & 255) << ',' << ((c >> IM_COL32_G_SHIFT) & 255)
             << ',' << ((c >> IM_COL32_B_SHIFT) & 255) << ',' << ((c >> IM_COL32_A_SHIFT) & 255) << ']';
     };
-    out << "{\"ok\":true,\"schema\":1,\"frame\":" << frame
+    out << "{\"ok\":true,\"schema\":2,\"frame\":" << frame
         << ",\"current_frame\":" << ImGui::GetFrameCount() << ",\"theme\":" << theme << ",\"bar\":";
     rect(barMin, barMax);
     out << ",\"spectrum\":" << (spectrum ? "true" : "false")
@@ -69,6 +109,8 @@ inline std::string Json() {
             << (c.text ? "text" : "graphic") << "\",\"fg\":"; color(c.foreground);
         out << ",\"bg\":"; color(c.background);
         out << ",\"bounds\":"; rect(c.min, c.max);
+        out << ",\"clip\":"; rect(c.clipMin, c.clipMax);
+        out << ",\"bounds_kind\":\"" << (c.glyphBounds ? "glyphs" : "control") << '"';
         out << ",\"disabled\":" << (c.disabled ? "true" : "false") << '}';
     }
     out << "]}";

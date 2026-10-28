@@ -41,6 +41,21 @@ class TransportAuditTests(unittest.TestCase):
              'bg': [14, 61, 72, 255], 'bounds': [100, 4, 140, 28], 'disabled': False}]}
         self.assertEqual(audit.analyze_snapshot(snap, required={'eq.label'})['checks'][0]['status'], 'fail')
 
+    def test_text_inside_bar_but_outside_its_clip_is_rejected(self):
+        row = {'id': 'eq.slope', 'kind': 'text', 'fg': [255]*4,
+               'bg': [0, 0, 0, 255], 'bounds': [100, 5, 125, 21],
+               'clip': [90, 0, 150, 13], 'bounds_kind': 'glyphs', 'disabled': False}
+        snap = {'bar': [0, 0, 800, 36], 'checks': [row]}
+        self.assertEqual(audit.analyze_snapshot(snap, required=set())['checks'][0]['status'], 'clipped')
+        row['bounds'] = [100, 5, 125, 12]
+        self.assertEqual(audit.analyze_snapshot(snap, required=set())['checks'][0]['status'], 'pass')
+
+    def test_control_box_does_not_claim_internal_text_coverage(self):
+        row = {'id': 'database.label', 'kind': 'text', 'fg': [255]*4,
+               'bg': [0, 0, 0, 255], 'bounds': [100, 5, 125, 21], 'disabled': False}
+        result = audit.analyze_snapshot({'bar': [0, 0, 800, 36], 'checks': [row]}, required=set())
+        self.assertEqual(result['checks'][0].get('text_clipping_measured'), False)
+
     def test_invalid_colors_are_rejected(self):
         with self.assertRaises(ValueError):
             audit.contrast([float('nan'), 0, 0, 255], [0, 0, 0, 255])

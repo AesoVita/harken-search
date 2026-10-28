@@ -81,8 +81,11 @@ def analyze_snapshot(snapshot, required=None):
         row['ratio'] = contrast(row['fg'], row['bg'])
         row['minimum'] = 4.5 if row['kind'] == 'text' else 3.0
         row['status'] = classify(row['ratio'], row['kind'], row['disabled'])
+        row['text_clipping_measured'] = row.get('bounds_kind') == 'glyphs' and 'clip' in row
         x0, y0, x1, y1 = row['bounds']
-        if x0 < bar[0] - .5 or y0 < bar[1] - .5 or x1 > bar[2] + .5 or y1 > bar[3] + .5 or x1 <= x0 or y1 <= y0:
+        clip = row.get('clip', bar)
+        limits = [max(bar[0], clip[0]), max(bar[1], clip[1]), min(bar[2], clip[2]), min(bar[3], clip[3])]
+        if x0 < limits[0] - .5 or y0 < limits[1] - .5 or x1 > limits[2] + .5 or y1 > limits[3] + .5 or x1 <= x0 or y1 <= y0:
             row['status'] = 'clipped'
         checks.append(row)
     return {'checks': checks, 'missing': sorted(required - {x['id'] for x in checks})}
@@ -202,13 +205,15 @@ def reports(output, results, identity):
             '范围：音效模式顶部播放栏，包含频谱附加控件、选区导出和宽 EQ。',
             '未覆盖：音乐模式、弹窗、悬停/拖动、波形底栏、变调轮、扫描中状态及其他窗口尺寸。',
             '每个状态的检测点分别计数；装饰性分隔线不作为必要控件。',
+            '裁切只覆盖已登记的区域：EQ 文字使用真实字形及绘制时裁切区；其它文字若只登记控件框，其内部裁切单列为未测，不能据此认定文字完整。',
             f"程序 SHA-256：{identity.get('exe_sha256', '')}",
             f"代码版本：{identity.get('git_revision', identity.get('code_revision', ''))}",
-            '', '| 主题 | 状态 | 对比度异常 | 裁切 | 缺失 | 禁用 |',
-            '|---|---|---:|---:|---:|---:|']
+            '', '| 主题 | 状态 | 对比度异常 | 已测区域裁切 | 缺失 | 禁用 | 文字内部裁切未测 |',
+            '|---|---|---:|---:|---:|---:|---:|']
     for r in results:
         count = lambda status: sum(x['status'] == status for x in r['checks'])
-        rows.append(f"| {r['name']} | {r['scenario']} | {count('fail')} | {count('clipped')} | {len(r['missing'])} | {count('disabled')} |")
+        unmeasured = sum(x['kind'] == 'text' and not x['text_clipping_measured'] for x in r['checks'])
+        rows.append(f"| {r['name']} | {r['scenario']} | {count('fail')} | {count('clipped')} | {len(r['missing'])} | {count('disabled')} | {unmeasured} |")
     rows += ['', '## 异常明细', '']
     for r in results:
         bad = [x for x in r['checks'] if x['status'] in ('fail', 'clipped')]

@@ -36,3 +36,5 @@ python tools/qa_transport_themes.py --exe build_audit/Debug/HarkenSearch.exe --i
 检查范围是音效模式的顶部栏。未覆盖音乐模式、弹窗、悬停/拖动、波形底栏、变调轮、扫描中状态和其他窗口尺寸。文字实际大小、抗锯齿和控件间关系仍需查看真实截图；数字通过不代表全部视觉验收通过。
 
 频谱混合比的键盘输入另由 `TestTransportBlendInput` 验证：真实 ImGui 接收 Ctrl+单击后进入数字编辑，普通数值底板不得遮住输入文字，输入 75 并回车应保存为 75%，退出编辑后恢复清晰底色。运行：`cmake --build build_audit --config Debug --target TestTransportBlendInput`，再执行 `ctest --test-dir build_audit -C Debug -R TestTransportBlendInput --output-on-failure`。此交互测试不替代上述真实包截图。
+
+裁切范围以 schema 2 报告为准：所有检测点保存采集时的有效裁切区；EQ 标记、斜率、频率、模式和刻度文字使用实际字体、字号和未裁切字形边界。图形替代文字时按图形采集。其它文字控件仍只登记控件边界，其内部文字裁切明确记为未测；报告中的“已测区域裁切为 0”不代表全部文字无裁切。字形采集由真实 ImGui 字体与嵌套裁切区的回归验证。

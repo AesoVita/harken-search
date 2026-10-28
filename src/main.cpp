@@ -25361,7 +25361,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     draw->AddLine(ImVec2(markMin.x + 3.0f, markMax.y - 1.0f),
                   ImVec2(markMax.x - 3.0f, markMax.y - 1.0f), markLineColor,
                   markPressed ? 2.0f : 1.5f);
-    TransportVisualAudit::Record("eq.label", true, markColor, ImGui::GetColorU32(markBackground), markMin, markMax);
+    TransportVisualAudit::Text("eq.label", markColor, ImGui::GetColorU32(markBackground),
+        ImVec2(markMin.x + 18.0f, markMin.y + 3.5f), "EQ", markFont, 14.0f);
     const SlopeDisplay steepnessLabel = slopeDisplay(settings.steepness);
     const float slopeAvailableWidth = std::max(0.0f, steepnessVisibleRight - steepnessLeft);
     const ImVec2 fullSlopeSize = ImGui::CalcTextSize(steepnessLabel.compact);
@@ -25374,23 +25375,30 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                                settings.steepness, settings.enabled ? status : muted);
             draw->AddText(ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), muted,
                           steepnessLabel.compact);
+            TransportVisualAudit::Text("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), steepnessLabel.compact);
         } else if (slopeAvailableWidth >= shortSlopeSize.x + 2.0f) {
             draw->AddText(ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), muted,
                           steepnessLabel.shortValue);
+            TransportVisualAudit::Text("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), steepnessLabel.shortValue);
         } else if (slopeAvailableWidth >= 18.0f) {
             drawSteepnessCurve(draw, ImVec2(steepnessLeft, pos.y + 8.0f), settings.mode,
                                settings.steepness, settings.enabled ? status : muted);
+            TransportVisualAudit::Record("eq.slope", false, settings.enabled ? status : muted,
+                ImGui::GetColorU32(transportSurface), ImVec2(steepnessLeft, pos.y),
+                ImVec2(steepnessVisibleRight, pos.y + 13.0f));
         } else {
             const float arrowX = steepnessLeft + slopeAvailableWidth * 0.5f;
             draw->AddTriangleFilled(ImVec2(arrowX - 3.0f, pos.y + 4.0f),
                                     ImVec2(arrowX + 3.0f, pos.y + 4.0f),
                                     ImVec2(arrowX, pos.y + 8.0f), muted);
+            TransportVisualAudit::Record("eq.slope", false, muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(arrowX - 3.0f, pos.y + 4.0f), ImVec2(arrowX + 3.0f, pos.y + 8.0f));
         }
         draw->PopClipRect();
     }
 
-    TransportVisualAudit::Record("eq.slope", true, muted, ImGui::GetColorU32(transportSurface),
-        ImVec2(steepnessLeft, pos.y), ImVec2(steepnessVisibleRight, pos.y + 13.0f));
     const ImU32 tickColor = ImGui::GetColorU32(TransportContrast::ForSurface(
         ImVec4(primaryText.x, primaryText.y, primaryText.z, .20f), transportSurface, 3.1));
     struct RulerTick { float frequencyHz; const char* label; };
@@ -25450,8 +25458,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                 labelLeft + labelSize.x > frequencyLabelMinX - 2.0f;
             if (!frequencyLabelOverlap && labelLeft >= lastLabelRight + 4.0f) {
                 draw->AddText(ImVec2(labelLeft, pos.y + 2.0f), muted, tick.label);
-                TransportVisualAudit::Record("eq.tick_label", true, muted, ImGui::GetColorU32(transportSurface),
-                    ImVec2(labelLeft, pos.y + 2.0f), ImVec2(labelLeft + labelSize.x, pos.y + 2.0f + labelSize.y));
+                TransportVisualAudit::Text("eq.tick_label", muted, ImGui::GetColorU32(transportSurface),
+                    ImVec2(labelLeft, pos.y + 2.0f), tick.label);
                 lastLabelRight = labelLeft + labelSize.x;
             }
         }
@@ -25485,9 +25493,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                             ImGui::GetColorU32(transportSurface), 2.0f);
         draw->AddText(ImVec2(frequencyInfoX, pos.y + 1.0f),
                       showFrequencyFallback ? baseText : muted, frequencyInfoText);
-        TransportVisualAudit::Record("eq.frequency", true, showFrequencyFallback ? baseText : muted,
-            ImGui::GetColorU32(transportSurface), ImVec2(frequencyInfoX, pos.y + 1),
-            ImVec2(frequencyInfoX + frequencyInfoSize.x, pos.y + 14));
+        TransportVisualAudit::Text("eq.frequency", showFrequencyFallback ? baseText : muted,
+            ImGui::GetColorU32(transportSurface), ImVec2(frequencyInfoX, pos.y + 1), frequencyInfoText);
     } else {
         const float indicatorX = frequencyInfoLeft + frequencyInfoWidth * 0.5f;
         draw->AddTriangleFilled(ImVec2(indicatorX - 3.0f, pos.y + 4.0f),
@@ -25549,10 +25556,6 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
             : (settings.mode == MagicEQMode::Notch
                 ? L(MagicEQ_ModeNotchCompact) : L(MagicEQ_ModePassCompact));
     }
-    TransportVisualAudit::Record("eq.mode", true, modeInk,
-        TransportVisualAudit::Over(ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
-            settings.enabled ? .16f : .10f)), ImGui::GetColorU32(transportSurface)),
-        ImVec2(modeLeft + 1, pos.y + 4), ImVec2(pos.x + width - 4, pos.y + 28));
     // The current language's compact word normally fits even at 120 px.
     // At enlarged font scales use a language-neutral shape, never an English initial.
     const bool modeIconOnly = ImGui::CalcTextSize(modeLabel).x + 8.0f > statusWidth;
@@ -25561,6 +25564,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                        ImVec2(pos.x + width - 3.0f, pos.y + 28.0f), true);
     if (modeIconOnly) {
         const float iconX = modeLeft + (statusWidth - 18.0f) * 0.5f;
+        TransportVisualAudit::Record("eq.mode", false, settings.enabled ? status : muted,
+            ImGui::GetColorU32(modeBackground), ImVec2(iconX, pos.y + 8), ImVec2(iconX + 18, pos.y + 24));
         if (settings.enabled)
             drawSteepnessCurve(draw, ImVec2(iconX, pos.y + 16.0f), settings.mode,
                                settings.steepness, status);
@@ -25570,6 +25575,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     } else {
         draw->AddText(ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f),
                       modeInk, modeLabel);
+        TransportVisualAudit::Text("eq.mode", modeInk, ImGui::GetColorU32(modeBackground),
+            ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f), modeLabel);
     }
     draw->PopClipRect();
     draw->AddLine(ImVec2(pos.x + 1.5f, pos.y + 9.0f), ImVec2(pos.x + 1.5f, pos.y + 23.0f), status, 1.5f);

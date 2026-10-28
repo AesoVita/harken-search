@@ -1,4 +1,5 @@
 #include "ui/TransportBlendSlider.h"
+#include "ui/TransportVisualAudit.h"
 #include <cmath>
 #include <cstdio>
 
@@ -55,6 +56,22 @@ int main() {
     io.AddKeyEvent(ImGuiKey_Enter, false); Frame(); Frame();
     Check(std::fabs(percent - 75.f) < .001f, "typing 75 and Enter commits 75 percent");
     Check(!editing && overlay, "readable display returns after editing");
+    ImGui::NewFrame();
+    ImGui::SetNextWindowPos(ImVec2(20, 20));
+    ImGui::SetNextWindowSize(ImVec2(400, 120));
+    ImGui::Begin("Glyph audit", nullptr, ImGuiWindowFlags_NoSavedSettings);
+    TransportVisualAudit::Request();
+    TransportVisualAudit::Begin(0, ImVec2(20, 20), ImVec2(420, 140), IM_COL32_BLACK);
+    ImGui::GetWindowDrawList()->PushClipRect(ImVec2(60, 50), ImVec2(100, 80), true);
+    ImGui::GetWindowDrawList()->AddText(ImGui::GetFont(), 20, ImVec2(40, 55), ink, "OVERFLOW");
+    TransportVisualAudit::Text("test", ink, IM_COL32_BLACK, ImVec2(40, 55), "OVERFLOW", ImGui::GetFont(), 20);
+    ImGui::GetWindowDrawList()->PopClipRect();
+    const auto& measured = TransportVisualAudit::checks.at(0);
+    Check(measured.glyphBounds && measured.min.x < 60 && measured.max.x > 100,
+        "audit preserves uncut glyph bounds from the actual font");
+    Check(measured.clipMin.x == 60 && measured.clipMax.x == 100,
+        "audit preserves the active inner clip after it is popped");
+    ImGui::End(); ImGui::Render();
     ImGui::DestroyContext();
     return failures ? 1 : 0;
 }
