@@ -1890,6 +1890,7 @@ struct MiniWaveTextureEntry {
 };
 
 static std::unordered_map<std::string, MiniWaveTextureEntry> g_miniWaveTextureCache; // filePath -> texture
+static MiniWaveformPresentation::DeferredTextureDeletes g_deferredMiniWaveTextureDeletes;
 static const size_t kMaxMiniWaveTextures = 250;
 
 // Mini waveform texture upload queue.
@@ -2464,6 +2465,19 @@ void InvalidateMiniWaveTextureForPath(const std::string& key) {
             DeleteMiniWaveTexture(texIt->second.textureId);
         g_miniWaveTextureCache.erase(texIt);
     }
+}
+
+void InvalidateMiniWaveTextureAfterFrame(const std::string& key) {
+    auto texIt = g_miniWaveTextureCache.find(key);
+    if (texIt == g_miniWaveTextureCache.end()) return;
+    g_deferredMiniWaveTextureDeletes.Queue(texIt->second.textureId);
+    g_miniWaveTextureCache.erase(texIt);
+}
+
+void FlushDeferredMiniWaveTextureDeletes() {
+    g_deferredMiniWaveTextureDeletes.Flush([](GLuint id) {
+        DeleteMiniWaveTexture(id);
+    });
 }
 
 void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key,
@@ -43436,6 +43450,38 @@ void RenderUI(AppState& state) {
                                         ImVec2(x, pos.y), ImVec2(x, pos.y + waveHeight),
                                         IM_COL32(255, 100, 100, 220), 1.5f);
                                 }
+                                if (MiniWaveformPresentation::CanSeek(false, hasRetained)) {
+                                    ImGui::SetCursorScreenPos(pos);
+                                    ImGui::InvisibleButton(("wavebseek" + std::to_string(i)).c_str(),
+                                                           ImVec2(waveWidth, waveHeight));
+                                    if (ImGui::IsItemActive() || ImGui::IsItemClicked()) {
+                                        const ImVec2 visualMin = ImGui::GetItemRectMin();
+                                        const float visualWidth = ImGui::GetItemRectSize().x;
+                                        const float seekPos = std::clamp(
+                                            (ImGui::GetMousePos().x - visualMin.x) / visualWidth,
+                                            0.0f, 1.0f);
+                                        if (!isCurrentFile) {
+                                            if (ImGui::IsItemClicked()) {
+                                                state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                                state.uiState.miniWaveSeekApplied = true;
+                                                state.uiState.miniWaveSeekTargetPath = entry.fullPath;
+                                                state.uiState.lastMiniWaveSeekPos = seekPos;
+                                                BeginBrowserPathAudition(state, entry, true);
+                                                MarkFilePlayed(state, entry.fullPath, 0, false);
+                                                state.audioEngine.seekToPosition(seekPos);
+                                            }
+                                        } else if (ImGui::IsItemClicked()) {
+                                            state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                            if (!state.audioEngine.isPlaying())
+                                                state.audioEngine.play();
+                                        } else if (std::abs(seekPos - state.uiState.lastMiniWaveSeekPos) > 0.002f) {
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                        }
+                                    }
+                                }
                             } else {
                                 ImGui::Dummy(ImVec2(waveWidth, waveHeight));
                                 float cy = pos.y + waveHeight / 2.0f;
@@ -45645,7 +45691,7 @@ void RenderUI(AppState& state) {
                     state.waveformCache.erase(state.waveformCache.begin());
                 }
                 // Invalidate stale GPU texture so it regenerates from new data
-                InvalidateMiniWaveTextureForPath(res.filePath);
+                InvalidateMiniWaveTextureAfterFrame(res.filePath);
                 state.waveformCache[res.filePath] = std::move(res.waveform);
                 state.waveformFailed.erase(res.filePath);
                 state.waveformMiniCacheMiss.erase(res.filePath);

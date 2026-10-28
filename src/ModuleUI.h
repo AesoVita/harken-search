@@ -39,3 +39,5 @@ void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key,
     MiniWaveformPresentation::Removal removal =
         MiniWaveformPresentation::Removal::ExplicitInvalidation);
 void InvalidateMiniWaveTextureForPath(const std::string& key);
+void InvalidateMiniWaveTextureAfterFrame(const std::string& key);
+void FlushDeferredMiniWaveTextureDeletes();
