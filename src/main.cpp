@@ -18891,9 +18891,8 @@ void RenderFileInfoPanelTabContents(
 // 底部工具栏（固定，不跟随滚动）
             constexpr float kArtworkFaderTrackH = 14.0f;
             constexpr float kArtworkSliderStripH = 22.0f;
-            float bottomBarH = kArtworkSliderStripH + 4.0f;
             float availH = ImGui::GetContentRegionAvail().y;
-            float scrollH = std::max(32.0f, availH - bottomBarH);
+            float scrollH = FileInfoArtworkContentHeight(availH, kArtworkSliderStripH);
             cw.thumbSize = aura::coverwall::ClampThumbSize(cw.thumbSize);
 
             // When a specific cover-key filter is active, force-narrow the
@@ -19134,7 +19133,7 @@ void RenderFileInfoPanelTabContents(
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().coverWallBG);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true);
             int coverWallReadyCount = 0;  // 供底部统计显示
             int coverWallLiveTextureCount = 0;
             int coverWallMirrorCount = 0;

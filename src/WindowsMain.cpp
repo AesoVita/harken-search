@@ -4441,9 +4441,12 @@ static void PollQaCommandFile(AppState& state) {
                     result = R"({"ok":true})";
                 }
             } else {
+                const auto* infoWindow = ImGui::FindWindowByName("Info##FloatingFileInfo");
                 result="{\"ok\":true,\"selected\":"+std::to_string(state.settings.infoPages.selected)+
                     ",\"visible_mask\":"+std::to_string(state.settings.infoPages.visibleMask)+
                     ",\"floating\":"+(state.panelFileInfo.floating?"true":"false")+
+                    ",\"outer_scrollbar\":"+(infoWindow && infoWindow->ScrollbarY?"true":"false")+
+                    ",\"outer_scroll_max\":"+std::to_string(infoWindow?infoWindow->ScrollMax.y:0.0f)+
                     ",\"frame\":"+std::to_string(snapshot.frameNumber)+",\"zones\":{";
                 bool first=true;
                 for (const auto& z:snapshot.zones) {

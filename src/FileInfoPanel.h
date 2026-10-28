@@ -46,6 +46,12 @@ void RenderFileInfoPageActions(AppState& state, ImVec2 position, float height, f
 void RenderFileInfoPanelContent(AppState& state, float panelWidth);
 int PushFileInfoShellStyle(const ThemeColorScheme& tcs);
 
+inline float FileInfoArtworkContentHeight(float availableHeight, float stripHeight) {
+    // EndChild advances by the active theme spacing before the fixed footer.
+    const float height = availableHeight - stripHeight - ImGui::GetStyle().ItemSpacing.y;
+    return height > 32.0f ? height : 32.0f;
+}
+
 inline void FinishFileInfoArtworkFooter(ImVec2 stripPos, float stripHeight) {
     ImGui::SetCursorScreenPos(ImVec2(stripPos.x, stripPos.y + stripHeight));
     // Without a tab bar, this footer must reserve its own trailing space.

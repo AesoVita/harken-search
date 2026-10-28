@@ -99,6 +99,7 @@ def run(args):
                         click("info.pageVisibility"); click("info.visibility."+str(i))
                 current=click("info.artwork")
                 assert current["visible_mask"]==15 and current["selected"]==1, current
+                assert not current["outer_scrollbar"] and current["outer_scroll_max"]==0, current
                 checks.append({"case":"ready-for-user","state":current})
                 capture("ready-for-user", "info.artwork")
         else:
