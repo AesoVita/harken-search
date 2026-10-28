@@ -4416,6 +4416,9 @@ static void PollQaCommandFile(AppState& state) {
                 }
                 else if (getStr(raw,"action")=="update_exit")
                     s_qaUpdateExitRequested.store(true,std::memory_order_release);
+                else if (getStr(raw,"action")=="new_db_dialog") state.showNewDbDialog=true;
+                else if (getStr(raw,"action")=="new_db_name") state.qaNewDbName=getStr(raw,"text");
+                else if (getStr(raw,"action")=="new_db_create") state.qaCreateNewDbNow=true;
                 else if (getStr(raw,"action")=="escape_down") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,true);
                 else if (getStr(raw,"action")=="escape_up") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,false);
                 else ImGui::GetIO().AddInputCharactersUTF8(getStr(raw,"text").c_str());

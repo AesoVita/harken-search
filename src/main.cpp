@@ -33095,6 +33095,12 @@ void RenderUI(AppState& state) {
         static int newDbCacheMode = (int)WaveformCachePolicy::Mode::MiniOnly;
         static bool newDbPending = false;
         static bool confirmOverwrite = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+        if (!state.qaNewDbName.empty()) {
+            snprintf(newDbNameBuf, sizeof(newDbNameBuf), "%s", state.qaNewDbName.c_str());
+            state.qaNewDbName.clear();
+        }
+#endif
         if (newDbPending && !state.dbSwitchInProgress) {
             newDbPending = false;
             if (state.dbSwitchError.empty()) {
@@ -33170,7 +33176,12 @@ void RenderUI(AppState& state) {
         bool canCreate = nameValid && (!exists || confirmOverwrite);
 
         ImGui::BeginDisabled(!canCreate);
-        if (ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32))) {
+        bool createClicked = ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32));
+#ifdef ARIS_PREVIEW_ISOLATION
+        const bool qaCreateClicked = std::exchange(state.qaCreateNewDbNow, false);
+        createClicked = createClicked || (qaCreateClicked && canCreate);
+#endif
+        if (createClicked) {
             if (Platform::FileSystem::IsNetworkPath(dbDir) ||
                 Platform::FileSystem::IsNetworkPath(fullPath)) {
                 newDbError = L(Db_RejectNetworkPath);

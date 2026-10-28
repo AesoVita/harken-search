@@ -2,6 +2,7 @@
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 import wave
 
 
@@ -114,6 +115,28 @@ def run_edit_suite(args, command, settled, click, capture, process, checks):
     checks.append({'case':'database-switch-save-before-switch','state':current})
     command(cmd='switch_db',path=str(databases[0]))
     wait_for(lambda:command(cmd='get_state'),lambda s:not s['db_switch_in_progress'] and s['result_count']>=2)
+    if args.edit_new_db_suite:
+        select(0); double_click(); change('before-new-db')
+        command(cmd='info_edit_input',action='new_db_dialog')
+        command(cmd='info_edit_input',action='new_db_name',text='qa-info-'+uuid.uuid4().hex[:8])
+        settled(); capture('new-db-dialog')
+        old_path=command(cmd='get_state')['db_path']
+        command(cmd='info_edit_input',action='new_db_create')
+        pending=settled()
+        assert pending['awaiting_save'] and command(cmd='get_state')['db_path']==old_path,pending
+        capture('new-db-save-required','info.saveYes')
+        current=click('info.saveYes')
+        new_state=wait_for(lambda:command(cmd='get_state'),
+            lambda s:not s['db_switch_in_progress'] and s['db_path']!=old_path)
+        new_path=Path(new_state['db_path'])
+        assert new_path.is_file() and new_path.resolve().is_relative_to(args.isolation_root.resolve()),new_state
+        with sqlite3.connect(databases[0]) as saved:
+            actual=saved.execute('SELECT description FROM audio_files WHERE id=?',
+                                 (current['edit_id'],)).fetchone()[0]
+        assert actual==current['draft_description'],(actual,current)
+        checks.append({'case':'new-db-waits-for-save-then-creates','state':current,
+                       'created_db_path':str(new_path),'old_db_path':old_path})
+        return
     select(0); before_exit=double_click(); change('exit-discard')
     exit_action='tray_exit' if args.edit_tray_suite else 'update_exit' if args.edit_update_suite else 'exit'
     command(cmd='info_edit_input',action=exit_action)

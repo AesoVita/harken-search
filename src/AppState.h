@@ -1670,6 +1670,10 @@ struct AppState {
     std::vector<int64_t>  pendingBulkAddFileIds;
 
     bool showNewDbDialog = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+    bool qaCreateNewDbNow = false;
+    std::string qaNewDbName;
+#endif
     bool showShortcutsDialog = false;
 
     // --- 数据库控制中心 (Database Control Center) 状态 ---
