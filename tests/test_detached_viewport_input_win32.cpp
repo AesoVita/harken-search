@@ -81,6 +81,36 @@ void PreserveInternalCaptureTransfer(HWND hwnd, bool releaseFirst, const char* l
     const bool stuck = NextFrame();
     Check(down && captured && stillDown && !stuck, label);
 }
+void PreserveSecondaryViewportCaptureTransfer(HWND source, HWND target, const char* label) {
+    const int before = forwardedUps;
+    SendMessageW(source, WM_LBUTTONDOWN, MK_LBUTTON, MAKELPARAM(30, 30));
+    const bool down = NextFrame();
+    const bool captured = GetCapture() == source;
+    ImGuiViewport sourceViewport{}, targetViewport{};
+    sourceViewport.ID = 0x1001;
+    sourceViewport.PlatformHandle = source;
+    targetViewport.ID = 0x1002;
+    targetViewport.PlatformHandle = target;
+    auto& viewports = ImGui::GetPlatformIO().Viewports;
+    const int previousCount = viewports.Size;
+    viewports.push_back(&sourceViewport);
+    viewports.push_back(&targetViewport);
+    // Deliver the real capture change with both secondary HWNDs registered.
+    SetCapture(target);
+    const bool transferred = GetCapture() == target;
+    // ImGui rebuilds this public registry at frame boundaries.
+    viewports.resize(previousCount);
+    const bool stillDown = NextFrame();
+    const bool noButtonUp = forwardedUps == before;
+    SendMessageW(target, WM_LBUTTONUP, 0, MAKELPARAM(30, 30));
+    const bool stuck = NextFrame();
+    const bool forwarded = forwardedUps == before + 1;
+    std::printf("case=%s down=%d captured=%d transferred=%d still_down=%d stuck=%d\n",
+        label, down, captured, transferred, stillDown, stuck);
+    Check(down && captured && transferred && stillDown && noButtonUp && !stuck && forwarded, label);
+    BackendProc(target, WM_LBUTTONUP, 0, MAKELPARAM(30, 30));
+    NextFrame();
+}
 }
 
 int main() {
@@ -119,6 +149,8 @@ int main() {
     PreserveInternalCaptureTransfer(popup, false, "direct_viewport_capture_transfer");
     PreserveInternalCaptureTransfer(popup, true, "viewport_retirement_capture_transfer");
     BindNativeCaptionModule(panel, "filter");
+    PreserveSecondaryViewportCaptureTransfer(popup, panel, "popup_to_registered_panel_capture_transfer");
+    PreserveSecondaryViewportCaptureTransfer(panel, popup, "panel_to_registered_popup_capture_transfer");
     ClickAndRelease(panel, "dock_panel_idle_widget");
     LoseCaptureWithoutButtonUp(panel, "dock_panel_client_capture_loss");
     // A completed native caption drag leaves its HWND/module remembered.
