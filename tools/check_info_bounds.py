@@ -14,12 +14,17 @@ def violations(report):
         checks = {
             'left inset': content['x'] >= outer['x'] + 8,
             'right inset': content['x'] + content['w'] <= outer['x'] + outer['w'] - 8,
-            'title gap': content['y'] >= outer['y'] + 4 + 24 + 13,
+            'title gap': content['y'] == outer['y'] + 4 + 24 + 8,
             'bottom inset': content['y'] + content['h'] <= outer['y'] + outer['h'] - 4 - 8,
             'artwork fits': artwork['y'] + artwork['h'] <= content['y'] + content['h'],
             'footer stays inside': content['scroll_max_y'] == 0,
             'no outer scroll': outer['scroll_max_y'] == 0,
         }
+        for key in ('info.metadataSummary', 'info.artwork', 'info.transferHistory',
+                    'info.playHistory', 'info.pageVisibility'):
+            zone = case['state']['zones'].get(key)
+            if zone is not None:
+                checks[key + ' vertical alignment'] = zone['y'] == outer['y'] + 2
         failures.extend(f"{case['name']}: {key}" for key, passed in checks.items() if not passed)
     return failures
 
