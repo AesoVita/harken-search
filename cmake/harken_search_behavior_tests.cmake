@@ -5948,6 +5948,22 @@ endif()
 add_test(NAME TestMiniWaveformScheduler COMMAND TestMiniWaveformScheduler)
 aura_set_test_labels(TestMiniWaveformScheduler core)
 
+add_executable(TestMiniWaveformPresentation EXCLUDE_FROM_ALL
+    tests/test_mini_waveform_presentation.cpp
+)
+target_include_directories(TestMiniWaveformPresentation PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+if(MSVC)
+    target_compile_options(TestMiniWaveformPresentation PRIVATE /W3 /utf-8)
+    set_target_properties(TestMiniWaveformPresentation PROPERTIES
+        LINK_FLAGS_RELEASE "/SUBSYSTEM:CONSOLE"
+        LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE"
+    )
+endif()
+add_test(NAME TestMiniWaveformPresentation COMMAND TestMiniWaveformPresentation)
+aura_set_test_labels(TestMiniWaveformPresentation core)
+
 add_executable(TestMiniRenderMath EXCLUDE_FROM_ALL
     tests/test_mini_render_math.cpp
 )
@@ -6088,6 +6104,28 @@ aura_set_test_labels(TestDatabaseNavNonblockingContract core)
 
 
 add_executable(TestTransportContrast EXCLUDE_FROM_ALL tests/test_transport_contrast.cpp)
+add_executable(TestEmptyStateContrast EXCLUDE_FROM_ALL tests/test_empty_state_contrast.cpp src/BuiltinThemeScheme.cpp)
+add_dependencies(TestEmptyStateContrast ArisLocalizationGenerated)
+target_include_directories(TestEmptyStateContrast PRIVATE src ${IMGUI_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated thirdparty)
+if(MSVC)
+    target_compile_options(TestEmptyStateContrast PRIVATE /utf-8)
+endif()
+add_test(NAME TestEmptyStateContrast COMMAND TestEmptyStateContrast)
+add_executable(TestMistBlueTheme EXCLUDE_FROM_ALL tests/test_mist_blue_theme.cpp src/BuiltinThemeScheme.cpp)
+add_dependencies(TestMistBlueTheme ArisLocalizationGenerated)
+target_include_directories(TestMistBlueTheme PRIVATE src ${IMGUI_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated thirdparty)
+if(MSVC)
+    target_compile_options(TestMistBlueTheme PRIVATE /utf-8)
+endif()
+add_test(NAME TestMistBlueTheme COMMAND TestMistBlueTheme)
+aura_set_test_labels(TestMistBlueTheme ui)
+aura_set_test_labels(TestEmptyStateContrast ui)
+add_test(NAME TestEmptyStateThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_empty_state_theme_audit.py)
+aura_set_test_labels(TestEmptyStateThemeAudit ui)
+add_test(NAME TestInfoFamilyThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_info_family_theme_audit.py)
+aura_set_test_labels(TestInfoFamilyThemeAudit ui)
 target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
 add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
 aura_set_test_labels(TestTransportContrast ui)
@@ -8186,6 +8224,10 @@ if(WIN32)
 endif()
 
 add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoEditSession tests/test_info_edit_session.cpp)
+target_include_directories(TestInfoEditSession PRIVATE src)
+add_test(NAME InfoEditSession COMMAND TestInfoEditSession)
+aura_set_test_labels(InfoEditSession ui info)
 add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
     thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
     thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)

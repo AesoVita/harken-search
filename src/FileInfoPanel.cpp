@@ -7,6 +7,7 @@
 #include "Theme.h"
 #include "TransientScrollbarHost.h"
 #include "ui/CoreWorkspaceStyle.h"
+#include "ui/TransportContrast.h"
 
 #include "imgui.h"
 
@@ -140,12 +141,15 @@ int PushFileInfoShellStyle(const ThemeColorScheme& tcs) {
     ImGui::PushStyleColor(ImGuiCol_WindowBg,             infoPanelBg);
     ImGui::PushStyleColor(ImGuiCol_ChildBg,              infoPanelBg);
     ImGui::PushStyleColor(ImGuiCol_Text,                 tcs.metadataPanelText);
+    const ImVec4 muted = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ThemeColors::customized() ? muted :
+        TransportContrast::ForSurface(muted, infoPanelBg, 6.0));
     ImGui::PushStyleColor(ImGuiCol_Border,               infoPanelBorder);
     aura::ui::workspace::PushTransientScrollbarColors(
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.40f),
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.60f),
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.80f));
-    return 8;
+    return 9;
 }
 
 
@@ -260,11 +264,12 @@ void RenderFileInfoPageActions(AppState& state, ImVec2 position, float height, f
 }
 
 void RenderFileInfoPanelContent(AppState& state, float panelWidth) {
+    GuardInfoMetadataContext(state);
     auto& pages = state.settings.infoPages;
     pages.Normalize(kDiagnostics);
     if (state.switchToCoverTabAfterRebuild) {
         // A background rebuild must not restore an explicitly hidden entry.
-        if (pages.Select(InfoPage::Artwork,kDiagnostics)) state.settingsDirty = true;
+        if (!state.infoEditSession.active && pages.Select(InfoPage::Artwork,kDiagnostics)) state.settingsDirty = true;
         state.switchToCoverTabAfterRebuild = false;
     }
     const FileInfoPanelChrome chrome = MakeFileInfoPanelChrome();

@@ -31,10 +31,10 @@ python tools/qa_transport_themes.py --exe build_audit/Debug/HarkenSearch.exe --i
 
 隔离根必须与构建固定值一致，输出目录必须为新目录。只启动、控制和关闭本轮创建的进程。返回值：0 表示已测场景通过；1 表示对比度、裁切或缺失异常；2 表示运行/截图未完成，已有结果写入 capture-error.json。报告包含实际窗口大小，启动时请求的宽度可能被程序恢复布局覆盖。
 
-固定九种状态：直通、旁通、挖槽、处理开启（含反向/声像/BM）、单声道、频谱展开、音量超过 100%、选区、宽 EQ。报告记录原始绘制颜色、透明叠加、区域、帧、截图 SHA-256、EXE SHA-256、Git 版本和源文件哈希。缺失项按条件检查，频谱收起到更多按钮时不把隐藏控件记为通过。
+固定十种状态：直通、旁通、挖槽、处理开启（含反向/声像/BM）、单声道、频谱展开、音量 107%、音量填充交界 55%、选区、宽 EQ。报告记录原始绘制颜色、透明叠加、区域、帧、截图 SHA-256、EXE SHA-256、Git 版本和源文件哈希。缺失项按条件检查，频谱收起到更多按钮时不把隐藏控件记为通过。
 
 检查范围是音效模式的顶部栏。未覆盖音乐模式、弹窗、悬停/拖动、波形底栏、变调轮、扫描中状态和其他窗口尺寸。文字实际大小、抗锯齿和控件间关系仍需查看真实截图；数字通过不代表全部视觉验收通过。
 
-频谱混合比的键盘输入另由 `TestTransportBlendInput` 验证：真实 ImGui 接收 Ctrl+单击后进入数字编辑，普通数值底板不得遮住输入文字，输入 75 并回车应保存为 75%，退出编辑后恢复清晰底色。运行：`cmake --build build_audit --config Debug --target TestTransportBlendInput`，再执行 `ctest --test-dir build_audit -C Debug -R TestTransportBlendInput --output-on-failure`。此交互测试不替代上述真实包截图。
+音量百分比与频谱混合比不添加文字底板、描边或阴影，按实际滑块填充颜色逐列选择字色；保留控件原有边线。颜色检查覆盖静止截图中的底色，不代表所有播放动画帧。频谱混合比的键盘输入另由 `TestTransportBlendInput` 验证：真实 ImGui 接收 Ctrl+单击后进入数字编辑，输入 75 并回车应保存为 75%，退出编辑后仍无文字底板；同时检查原有纹理抗锯齿边框不被误删。运行：`cmake --build build --config Debug --target TestTransportBlendInput`，再执行 `ctest --test-dir build -C Debug -R TestTransportBlendInput --output-on-failure`。此交互测试不替代上述真实包截图。
 
 裁切范围以 schema 2 报告为准：所有检测点保存采集时的有效裁切区；EQ 标记、斜率、频率、模式和刻度文字使用实际字体、字号和未裁切字形边界。图形替代文字时按图形采集。其它文字控件仍只登记控件边界，其内部文字裁切明确记为未测；报告中的“已测区域裁切为 0”不代表全部文字无裁切。字形采集由真实 ImGui 字体与嵌套裁切区的回归验证。

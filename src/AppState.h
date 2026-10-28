@@ -1,5 +1,6 @@
 #pragma once
 #include "InfoPageNavigation.h"
+#include "InfoEditSession.h"
 // SoundManager - 应用状态模块
 // AppState.h - 应用状态、设置、标签页结构
 // 注意：这是权威定义，main.cpp 中不再重复定义这些类型
@@ -1669,6 +1670,10 @@ struct AppState {
     std::vector<int64_t>  pendingBulkAddFileIds;
 
     bool showNewDbDialog = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+    bool qaCreateNewDbNow = false;
+    std::string qaNewDbName;
+#endif
     bool showShortcutsDialog = false;
 
     // --- 数据库控制中心 (Database Control Center) 状态 ---
@@ -2650,7 +2655,11 @@ struct AppState {
     }();
     PanelState panelWaveform;
     PanelState panelDatabase;
-    PanelState panelSimilarSounds;
+    PanelState panelSimilarSounds = [] {
+        PanelState panel;
+        panel.floatW = 640.0f;
+        return panel;
+    }();
     PanelState panelUCSBrowser = [] {
         PanelState panel;
         panel.visible = false;
@@ -2760,6 +2769,13 @@ struct AppState {
     // Metadata edit state
     bool showMetadataEditDialog = false;
     bool metadataEditMode = false;
+    InfoEditSession infoEditSession;
+    std::vector<AudioRecord> infoEditRecords;
+    std::string infoEditDatabasePath;
+    std::string infoEditError;
+    std::function<void()> infoEditAfterLeave;
+    int infoEditVisibleMask = 15;
+    int64_t infoEditSelectionId = -1;
     int64_t metadataEditFileId = -1;
     bool metadataBatchMode = false;
     std::vector<int64_t> metadataBatchIds;

@@ -101,7 +101,10 @@
 #include "Theme.h"              // 主题颜色系统
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
-#include "ui/TransportContrast.h"     // 主题检视模式
+#include "ui/TransportContrast.h"
+#include "ui/MistBlueChrome.h"
+#include "ui/EmptyStatePalette.h"
+#include "ui/EmptyStateVisualAudit.h"
 #include "ui/TransportBlendSlider.h"
 #include "HarkenSearchThemeManager.h"   // 次世代视觉管理器
 #include "HarkenSearchWidgets.h"        // Aris shared controls for core product flows
@@ -228,6 +231,7 @@
 #include "WaveformExtractor.h"
 #include "WaveformRegionEditor.h"
 #include "MiniWaveformGeometry.h"
+#include "MiniWaveformPresentation.h"
 #include "MiniWaveformScheduler.h"
 #include "SelectedWaveformRebuildQueue.h"
 #include "RenderFrameRequestPolicy.h"
@@ -948,7 +952,8 @@ SwitchDatabase(AppState& state,
                bool allowCreate = false,
                std::string* outImmediateError = nullptr,
                int initialWaveformCacheMode = -1,
-               bool overwriteExisting = false);
+               bool overwriteExisting = false,
+               std::function<void(bool, const std::string&)> afterDeferredStart = {});
 static bool SidebarRefreshGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_busy = false);
 static bool SidebarClearAllGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_emphasized = false);
 bool HorizontalSplitter(const char* id, float* panelHeight, float minHeight = 50.0f, float maxHeight = 500.0f, float width = 0.0f, bool growWhenDraggingDown = false);
@@ -1888,6 +1893,7 @@ struct MiniWaveTextureEntry {
 };
 
 static std::unordered_map<std::string, MiniWaveTextureEntry> g_miniWaveTextureCache; // filePath -> texture
+static MiniWaveformPresentation::DeferredTextureDeletes g_deferredMiniWaveTextureDeletes;
 static const size_t kMaxMiniWaveTextures = 250;
 
 // Mini waveform texture upload queue.
@@ -2021,6 +2027,15 @@ static bool HasCompatibleMiniWaveTexture(const std::string& path, int targetW, i
     }
 
     cacheIt->second.lastUsedFrame = frame;
+    return true;
+}
+
+static bool GetRetainedMiniWaveTexture(const std::string& path, MiniWaveTextureEntry& outTex) {
+    auto it = g_miniWaveTextureCache.find(path);
+    if (it == g_miniWaveTextureCache.end() || !it->second.hasTexture || it->second.textureId == 0)
+        return false;
+    it->second.lastUsedFrame = (uint64_t)ImGui::GetFrameCount();
+    outTex = it->second;
     return true;
 }
 
@@ -2446,16 +2461,34 @@ static void ScheduleMiniWaveformRequestsForRange(AppState& state, int displaySta
     }
 }
 
-void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key) {
-    state.waveformCache.erase(key);
-    state.waveformFailed.erase(key);
+void InvalidateMiniWaveTextureForPath(const std::string& key) {
     auto texIt = g_miniWaveTextureCache.find(key);
     if (texIt != g_miniWaveTextureCache.end()) {
-        if (texIt->second.textureId != 0) {
+        if (texIt->second.textureId != 0)
             DeleteMiniWaveTexture(texIt->second.textureId);
-        }
         g_miniWaveTextureCache.erase(texIt);
     }
+}
+
+void InvalidateMiniWaveTextureAfterFrame(const std::string& key) {
+    auto texIt = g_miniWaveTextureCache.find(key);
+    if (texIt == g_miniWaveTextureCache.end()) return;
+    g_deferredMiniWaveTextureDeletes.Queue(texIt->second.textureId);
+    g_miniWaveTextureCache.erase(texIt);
+}
+
+void FlushDeferredMiniWaveTextureDeletes() {
+    g_deferredMiniWaveTextureDeletes.Flush([](GLuint id) {
+        DeleteMiniWaveTexture(id);
+    });
+}
+
+void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key,
+                                 MiniWaveformPresentation::Removal removal) {
+    state.waveformCache.erase(key);
+    state.waveformFailed.erase(key);
+    if (!MiniWaveformPresentation::RetainTextureAfterRemoval(removal))
+        InvalidateMiniWaveTextureForPath(key);
 }
 
 // 封面图片文件读取 / 文件夹封面缓存 / 内嵌封面纹理等逻辑已迁移到 `CoverModule.*`
@@ -9903,7 +9936,8 @@ BuildAsyncSearchResultApplicationEffects() {
             IsCoverWallPriorityMode,
             ResetWaveformZoom,
             [](AppState& appState, const std::string& key) {
-                ReleaseWaveformEvictedEntry(appState, key);
+                ReleaseWaveformEvictedEntry(appState, key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             },
         });
 }
@@ -10428,7 +10462,8 @@ void AppState::performGlobalMemoryGC() {
             uint64_t over = wUsage - wBudget;
             auto evicted = memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, over);
             for (const auto& e : evicted)
-                ReleaseWaveformEvictedEntry(*this, e.key);
+                ReleaseWaveformEvictedEntry(*this, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
         }
     } else {
         waveformCache.clear();
@@ -10559,12 +10594,58 @@ void PumpDatabaseSwitchIfPending(AppState& state) {
 // 主线程仅做必须主线程的事（GPU 资源 + 轻量 state 清理 + 设置 in-progress 标志），
 // 全部可能阻塞的 teardown（scanner/searchWorker/waveformWorker/database.close）和
 // database.open 一起放到后台线程，避免大库切换时主线程被 join 卡数十秒。
+static InfoEditValues CurrentInfoEditValues(const AppState& state) {
+    return {state.metadataDescBuffer,state.metadataKeywordsBuffer,state.metadataCategoryBuffer};
+}
+
+bool RequestInfoMetadataLeave(AppState& state, std::function<void()> afterLeave) {
+    if (!state.infoEditSession.active) return false;
+    const bool alreadyPending=state.infoEditSession.awaitingChoice;
+    if (!state.infoEditSession.RequestLeave(CurrentInfoEditValues(state))) {
+        state.metadataEditMode=false;
+        state.metadataBatchMode=false;
+        state.metadataBatchIds.clear();
+        state.infoEditRecords.clear();
+        return false;
+    }
+    if (!alreadyPending) state.infoEditAfterLeave=std::move(afterLeave);
+    return true;
+}
+
+void GuardInfoMetadataContext(AppState& state) {
+    if (!state.infoEditSession.active) return;
+    int64_t selectedId=state.currentFileId;
+    if (state.selectedResultIndex>=0 && state.selectedResultIndex<(int)state.searchResults.size())
+        selectedId=state.searchResults[state.selectedResultIndex].id;
+    const bool leaving = selectedId!=state.infoEditSelectionId ||
+        state.viewMode==ViewMode::Browser || !state.panelFileInfo.visible ||
+        state.settings.infoPages.selected!=0 || !state.settings.infoPages.IsVisible(InfoPage::Metadata,true);
+    if (leaving && !state.infoEditSession.awaitingChoice) {
+        const bool visible=state.panelFileInfo.visible;
+        const auto pages=state.settings.infoPages;
+        RequestInfoMetadataLeave(state,[&state,visible,pages] {
+            state.panelFileInfo.visible=visible; state.settings.infoPages=pages; state.settingsDirty=true;
+        });
+    }
+    if (state.infoEditSession.awaitingChoice) {
+        state.panelFileInfo.visible=true;
+        state.settings.infoPages.visibleMask=state.infoEditVisibleMask;
+        state.settings.infoPages.selected=0;
+    }
+}
+
 static bool SwitchDatabase(AppState& state,
                            const std::string& newDbPathUtf8,
                            bool allowCreate,
                            std::string* outImmediateError,
                            int initialWaveformCacheMode,
-                           bool overwriteExisting) {
+                           bool overwriteExisting,
+                           std::function<void(bool, const std::string&)> afterDeferredStart) {
+    if (RequestInfoMetadataLeave(state,[&state,newDbPathUtf8,allowCreate,initialWaveformCacheMode,overwriteExisting,afterDeferredStart=std::move(afterDeferredStart)] {
+        std::string error;
+        const bool started=SwitchDatabase(state,newDbPathUtf8,allowCreate,&error,initialWaveformCacheMode,overwriteExisting);
+        if(afterDeferredStart) afterDeferredStart(started,error);
+    })) return false;
     const std::string effectiveDbPathUtf8 = newDbPathUtf8.empty()
         ? std::string()
         : ResolveCanonicalHarkenSearchDatabasePathUtf8(newDbPathUtf8);
@@ -17371,6 +17452,91 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 
 // SECTION 9 - File Info Panel
 
+static void BeginInfoMetadataEdit(AppState& state, const AudioRecord& record) {
+    if (record.id<=0 || state.infoEditSession.active || state.dbSwitchInProgress) return;
+    state.infoEditRecords.clear();
+    if (state.selectedIndicesSet.size()>1) {
+        for (int i:state.selectedIndicesSet)
+            if(i>=0 && i<(int)state.searchResults.size()) state.infoEditRecords.push_back(state.searchResults[i]);
+    }
+    if (state.infoEditRecords.empty()) state.infoEditRecords.push_back(record);
+    state.metadataBatchMode=state.infoEditRecords.size()>1;
+    state.metadataBatchIds.clear();
+    for (const auto& item:state.infoEditRecords) state.metadataBatchIds.push_back(item.id);
+    state.metadataEditFileId=record.id;
+    state.infoEditSelectionId=record.id;
+    state.infoEditDatabasePath=state.database.getMainDbPath();
+    state.infoEditVisibleMask=state.settings.infoPages.visibleMask;
+    strncpy_s(state.metadataDescBuffer,sizeof(state.metadataDescBuffer),state.metadataBatchMode?"":record.description.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataKeywordsBuffer,sizeof(state.metadataKeywordsBuffer),state.metadataBatchMode?"":record.keywords.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataCategoryBuffer,sizeof(state.metadataCategoryBuffer),state.metadataBatchMode?"":record.category.c_str(),_TRUNCATE);
+    state.infoEditSession.Begin(CurrentInfoEditValues(state));
+    state.infoEditError.clear();
+    state.infoEditAfterLeave={};
+    state.metadataEditMode=true;
+}
+
+static bool SaveInfoMetadataDraft(AppState& state) {
+    if (state.database.getMainDbPath()!=state.infoEditDatabasePath || state.infoEditRecords.empty()) return false;
+    const auto values=CurrentInfoEditValues(state);
+    const auto& old=state.infoEditSession.original;
+    const bool desc=values.description!=old.description, keys=values.keywords!=old.keywords, cat=values.category!=old.category;
+    MetadataEditPatch patch;
+    if(desc) patch.setDescription(values.description);
+    if(keys) patch.setKeywords(values.keywords);
+    if(cat) patch.setCategory(values.category);
+    auto undo=std::make_unique<MetadataPatchOp>();
+    undo->operationName=state.metadataBatchMode?"Batch edit metadata":"Edit metadata";
+    std::vector<int64_t> ids;
+    for(const auto& original:state.infoEditRecords) {
+        // Resolve by the captured identity, never by the new selection.
+        const auto current=state.database.getFileById(original.id);
+        if(current.id!=original.id || current.filePath!=original.filePath ||
+           !Platform::FileSystem::Exists(original.filePath)) return false;
+        MetadataPatchEntry entry; entry.fileId=original.id;
+        if(desc) { entry.oldValues["description"]=current.description; entry.newValues["description"]=values.description; }
+        if(keys) { entry.oldValues["keywords"]=current.keywords; entry.newValues["keywords"]=values.keywords; }
+        if(cat) { entry.oldValues["category"]=current.category; entry.newValues["category"]=values.category; }
+        undo->entries.push_back(std::move(entry)); ids.push_back(original.id);
+    }
+    const auto result=state.database.applyMetadataPatchBatch(ids,patch);
+    if(result.failed || result.success!=(int)ids.size()) return false;
+    state.undoStack.push(std::move(undo));
+    state.database.invalidateFacetQueryCache();
+    g_forceMetaCacheInvalidate=true;
+    RefreshSearchResults(state,false);
+    return true;
+}
+
+void RenderInfoMetadataLeavePrompt(AppState& state) {
+    if (!state.infoEditSession.awaitingChoice) return;
+    const char* title=L(Info_SaveBeforeLeaving);
+    if (!ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
+    bool resolved=false;
+    if (ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(L(Info_SaveBeforeLeavingBody));
+        if (!state.infoEditError.empty()) ImGui::TextWrapped("%s",state.infoEditError.c_str());
+        const bool yes=ImGui::Button(L(Info_SaveYes),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveYes",L(Info_SaveYes),"src/main.cpp");
+        ImGui::SameLine();
+        const bool no=ImGui::Button(L(Info_SaveNo),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveNo",L(Info_SaveNo),"src/main.cpp");
+        if (yes || no) {
+            const bool saved=yes && SaveInfoMetadataDraft(state);
+            resolved=state.infoEditSession.Resolve(yes,saved);
+            if(resolved) ImGui::CloseCurrentPopup();
+            else state.infoEditError=L(Info_SaveFailedKeepEditing);
+        }
+        ImGui::EndPopup();
+    }
+    if (resolved) {
+        state.metadataEditMode=false; state.metadataBatchMode=false; state.metadataBatchIds.clear();
+        state.infoEditRecords.clear(); state.infoEditError.clear();
+        auto after=std::move(state.infoEditAfterLeave); state.infoEditAfterLeave={};
+        if(after) after();
+    }
+}
+
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
@@ -17390,7 +17556,7 @@ void RenderFileInfoPanelTabContents(
         // 其他标签：优先保持当前选中项的稳定布局，不因为异步加载中途掉到 fallback 分支而整块跳动
         // Keep the selected record as a stable display source until audio is ready.
         const int selIndex = state.selectedResultIndex;
-        const bool hasSelectedRecord =
+        bool hasSelectedRecord =
             (state.viewMode != ViewMode::Browser) &&
             (selIndex >= 0) &&
             (selIndex < (int)state.searchResults.size());
@@ -17399,11 +17565,18 @@ void RenderFileInfoPanelTabContents(
             selectedRecord = state.searchResults[(size_t)selIndex];
         }
 
+        if (state.infoEditSession.active && !state.infoEditRecords.empty()) {
+            selectedRecord = state.infoEditRecords.front();
+            for (const auto& item:state.infoEditRecords)
+                if(item.id==state.metadataEditFileId) selectedRecord=item;
+            hasSelectedRecord=true;
+        }
+
         const AudioFileInfo& engineInfo = state.audioEngine.getFileInfo();
         const bool hasEngineInfo = state.audioEngine.isLoaded() && !engineInfo.filePath.empty();
         const bool useSelectedRecordInfo =
             hasSelectedRecord &&
-            (!hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
+            (state.infoEditSession.active || !hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
         bool isAudioValid = hasEngineInfo || useSelectedRecordInfo;
         if (isAudioValid) {
         AudioFileInfo info = engineInfo;
@@ -17443,6 +17616,14 @@ void RenderFileInfoPanelTabContents(
             } else if (useSelectedRecordInfo) {
                 record = selectedRecord;
             }
+
+            const ImVec2 infoOrigin=ImGui::GetWindowPos();
+            const ImVec2 infoSize=ImGui::GetWindowSize();
+            ThemeInspector::RegisterZone(infoOrigin,ImVec2(infoOrigin.x+infoSize.x,infoOrigin.y+infoSize.y),
+                "info.metadataContent",L(Info_MetaSummaryTab),"src/main.cpp");
+            if (hasDb && !state.infoEditSession.active &&
+                ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseDoubleClicked(0))
+                BeginInfoMetadataEdit(state,record);
 
             // Async info-panel IO (metadata + file times + bit depth): avoid UI thread blocking.
             struct InfoPanelAsyncPayload {
@@ -17914,6 +18095,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditDesc", state.metadataDescBuffer, sizeof(state.metadataDescBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.description",L(Info_Description),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17921,6 +18103,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditKeywords", state.metadataKeywordsBuffer, sizeof(state.metadataKeywordsBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.keywords",L(Info_Keywords),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17928,6 +18111,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditCategory", state.metadataCategoryBuffer, sizeof(state.metadataCategoryBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.category",L(Info_Category),"src/main.cpp");
                 } else {
                     // Display mode
                     row(L(Info_Description), desc.empty() ? "-" : desc);
@@ -17967,119 +18151,6 @@ void RenderFileInfoPanelTabContents(
                 }
 
                 ImGui::EndTable();
-            }
-
-            // Metadata edit buttons
-            static std::string s_inlineMetaSaveMsg;
-            static int s_inlineMetaSaveSuccess = 0, s_inlineMetaSaveSkipped = 0, s_inlineMetaSaveFailed = 0;
-            ImGui::Separator();
-            if (hasDb) {
-                bool isEditing = state.metadataEditMode &&
-                    (state.metadataBatchMode ? !state.metadataBatchIds.empty() : state.metadataEditFileId == record.id);
-
-                if (isEditing) {
-                    // Show batch info if in batch mode
-                    if (state.metadataBatchMode) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), L(Info_BatchEditN), (int)state.metadataBatchIds.size());
-                    }
-
-                    // Save / Cancel buttons
-                    if (ImGui::Button(L(Main_SaveChangesBtn), ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 28))) {
-                        s_inlineMetaSaveSuccess = 0;
-                        s_inlineMetaSaveSkipped = 0;
-                        s_inlineMetaSaveFailed = 0;
-                        auto undoOp = std::make_unique<MetadataPatchOp>();
-                        undoOp->operationName = state.metadataBatchMode ? "Batch edit metadata" : "Edit metadata";
-
-                        if (state.metadataBatchMode) {
-                            std::unordered_map<int64_t, const AudioRecord*> recMap;
-                            for (const auto& r : state.searchResults) recMap[r.id] = &r;
-
-                            std::vector<int64_t> applyIds;
-                            MetadataEditPatch patch;
-                            patch.setDescription(state.metadataDescBuffer);
-                            patch.setKeywords(state.metadataKeywordsBuffer);
-                            patch.setCategory(state.metadataCategoryBuffer);
-                            for (int64_t id : state.metadataBatchIds) {
-                                auto it = recMap.find(id);
-                                if (it == recMap.end()) { s_inlineMetaSaveFailed++; continue; }
-                                const AudioRecord* rec = it->second;
-                                if (!Platform::FileSystem::Exists(rec->filePath)) {
-                                    s_inlineMetaSaveSkipped++;
-                                    continue;
-                                }
-                                applyIds.push_back(id);
-                                MetadataPatchEntry entry;
-                                entry.fileId = id;
-                                entry.oldValues = {{"description", rec->description}, {"keywords", rec->keywords}, {"category", rec->category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                            }
-                            if (!applyIds.empty()) {
-                                BatchMetadataApplyResult res = state.database.applyMetadataPatchBatch(applyIds, patch);
-                                if (res.failed == 0) {
-                                    s_inlineMetaSaveSuccess = res.success;
-                                } else {
-                                    s_inlineMetaSaveSuccess = 0;
-                                    s_inlineMetaSaveFailed += (int)applyIds.size();
-                                    undoOp->entries.clear();
-                                }
-                            }
-                        } else {
-                            // Single file
-                            if (!Platform::FileSystem::Exists(record.filePath)) {
-                                s_inlineMetaSaveSkipped = 1;
-                            } else {
-                                MetadataEditPatch patch;
-                                patch.setDescription(state.metadataDescBuffer);
-                                patch.setKeywords(state.metadataKeywordsBuffer);
-                                patch.setCategory(state.metadataCategoryBuffer);
-                                MetadataPatchEntry entry;
-                                entry.fileId = record.id;
-                                entry.oldValues = {{"description", record.description}, {"keywords", record.keywords}, {"category", record.category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                                if (state.database.applyMetadataPatch(record.id, patch)) {
-                                    s_inlineMetaSaveSuccess = 1;
-                                } else {
-                                    s_inlineMetaSaveFailed = 1;
-                                }
-                            }
-                        }
-                        if (s_inlineMetaSaveSuccess > 0) {
-                            state.undoStack.push(std::move(undoOp));
-                            state.database.invalidateFacetQueryCache();
-                            s_cachedMetaFileId = -1; // invalidate to reflect updated values
-                            RefreshSearchResults(state, false);
-                        }
-                        s_inlineMetaSaveMsg = std::to_string(s_inlineMetaSaveSuccess) + u8" 成功";
-                        if (s_inlineMetaSaveSkipped > 0)
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveSkipped) + u8" 跳过（文件不在磁盘上）";
-                        if (s_inlineMetaSaveFailed > 0) {
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveFailed) + u8" 失败";
-                            if (!state.database.getLastError().empty()) {
-                                s_inlineMetaSaveMsg += u8" ";
-                                s_inlineMetaSaveMsg += L(Write_BlockedNetworkLibrary);
-                            }
-                        }
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button(L(Main_CancelBracketBtn), ImVec2(-1, 28))) {
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                        s_inlineMetaSaveMsg.clear();
-                    }
-                }
-                if (!s_inlineMetaSaveMsg.empty()) {
-                    ImGui::TextColored(
-                        s_inlineMetaSaveFailed > 0 ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) :
-                        (s_inlineMetaSaveSkipped > 0 ? ImVec4(1.0f, 0.8f, 0.2f, 1.0f) : ImVec4(0.4f, 0.9f, 0.4f, 1.0f)),
-                        "%s", s_inlineMetaSaveMsg.c_str());
-                }
             }
 
             // Region info (display only, no DAW drag buttons)
@@ -20613,7 +20684,8 @@ static int PushWaveformShellStyle(const ThemeColorScheme& tcs) {
     return 7;
 }
 
-static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const char* overlayText = nullptr) {
+static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg,
+                                   const char* overlayText = nullptr, bool splitTextContrast = false) {
     auto mixColor = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
         return ImVec4(
             a.x + (b.x - a.x) * t,
@@ -20644,6 +20716,17 @@ static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const 
     if (overlayText && overlayText[0]) {
         ImVec2 textSize = ImGui::CalcTextSize(overlayText);
         ImVec2 textPos(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
+        if (splitTextContrast) {
+            const float fillEnd = pos.x + size.x * fraction;
+            const ImVec4 fillInk = TransportContrast::ForSurface(tcs.interfaceText, tcs.controlAccent, 4.5);
+            const ImVec4 trackInk = TransportContrast::ForSurface(tcs.interfaceText, tcs.frameBgBase, 4.5);
+            dl->PushClipRect(pos, ImVec2(fillEnd, pos.y + size.y), true);
+            dl->AddText(textPos, ImGui::GetColorU32(fillInk), overlayText);
+            dl->PopClipRect();
+            dl->PushClipRect(ImVec2(fillEnd, pos.y), ImVec2(pos.x + size.x, pos.y + size.y), true);
+            dl->AddText(textPos, ImGui::GetColorU32(trackInk), overlayText);
+            dl->PopClipRect();
+        } else {
         const ImVec4 textCol = fraction >= 0.55f
             ? withAlpha(mixColor(tcs.mainWindowBG, tcs.interfaceText, 0.24f), 1.0f)
             : withAlpha(tcs.interfaceText, 1.0f);
@@ -20652,6 +20735,7 @@ static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const 
             : withAlpha(mixColor(tcs.mainWindowBG, tcs.chromeBorder, 0.60f), 0.74f);
         dl->AddText(ImVec2(textPos.x + 1, textPos.y + 1), ImGui::GetColorU32(shadowCol), overlayText);
         dl->AddText(textPos, ImGui::GetColorU32(textCol), overlayText);
+        }
     }
     ImGui::Dummy(size);
 }
@@ -20766,6 +20850,7 @@ void ApplyTheme(AppTheme theme) {
         ThemeColors::current() = MakeBuiltinScheme(theme);
         ThemeColors::deactivateCustomTheme();
         ThemeColors::applyToImGui();
+        if (theme == AppTheme::LapisBlue) MistBlueChrome::Apply(colors, ThemeColors::current());
         ThemeColors::markPendingUiChromeResync();
         SyncLegacyColorsFromTheme();
         return;
@@ -24937,7 +25022,7 @@ int g_magicEqQaActiveDragPart = 0;
 #endif
 
 static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sampleRate,
-                           bool& saveSettingsNow, const ImVec4& transportSurface) {
+                           bool& saveSettingsNow, const ImVec4& transportSurface, bool navyStateContrast) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (!window || window->SkipItems) return false;
     settings.widgetWidth = std::clamp(settings.widgetWidth, 120.0f, 1600.0f);
@@ -25350,7 +25435,10 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     const ImU32 baseText = ImGui::GetColorU32(primaryText);
     const ImU32 muted = ImGui::GetColorU32(TransportContrast::ForSurface(
         ImVec4(primaryText.x, primaryText.y, primaryText.z, .48f), transportSurface, 4.7));
-    const ImVec4 statusColor = TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
+    const auto navyEq = MistBlueChrome::EqState(theme, transportSurface, settings.enabled, toggleHit, toggleHit && held);
+    const ImVec4 navyBandColor = settings.enabled && settings.mode == MagicEQMode::Notch
+        ? theme.waveformPositionLine : navyEq.signal;
+    const ImVec4 statusColor = navyStateContrast ? navyBandColor : TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
         : (settings.mode == MagicEQMode::Notch ? theme.waveformSelectionEdge : theme.controlAccent), transportSurface, 3.2);
     const ImU32 status = ImGui::GetColorU32(statusColor);
     ImDrawList* draw = window->DrawList;
@@ -25358,11 +25446,11 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     // have their own shapes. This keeps the full player bar visually continuous.
     const bool markHover = toggleHit;
     const bool markPressed = markHover && held;
-    const ImVec4 markBackground = !settings.enabled
+    const ImVec4 markBackground = navyStateContrast ? navyEq.button : !settings.enabled
         ? ImLerp(transportSurface, theme.chromeBorder, markHover ? 0.38f : 0.23f)
         : ImLerp(transportSurface, theme.controlAccent,
                  markPressed ? 0.06f : (markHover ? 0.17f : 0.11f));
-    const ImU32 markColor = ImGui::GetColorU32(TransportContrast::ForSurface(settings.enabled
+    const ImU32 markColor = navyStateContrast ? ImGui::GetColorU32(navyEq.ink) : ImGui::GetColorU32(TransportContrast::ForSurface(settings.enabled
         ? ImLerp(theme.controlAccent, primaryText, markHover && !markPressed ? .23f : 0.f)
         : ImGui::ColorConvertU32ToFloat4(muted),
         TransportContrast::Over(markBackground, transportSurface), 4.7));
@@ -25492,15 +25580,23 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
             }
         }
     }
-    draw->AddLine(ImVec2(railLeft, railY), ImVec2(railRight, railY), muted, 2.0f);
+    draw->AddLine(ImVec2(railLeft, railY), ImVec2(railRight, railY),
+                  navyStateContrast && !settings.enabled ? status : muted,
+                  navyStateContrast && !settings.enabled ? 1.0f : 2.0f);
+    const float bandAlpha = navyStateContrast && !settings.enabled ? 0.f
+        : (settings.enabled ? (navyStateContrast ? .60f : .42f) : .20f);
     draw->AddRectFilled(ImVec2(leftX, railY - 4.5f), ImVec2(rightX, railY + 4.5f),
                         ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
-                                                   settings.enabled ? 0.42f : 0.20f)), 4.5f);
-    draw->AddLine(ImVec2(leftX, railY), ImVec2(rightX, railY), status, 2.0f);
+                                                   bandAlpha)), 4.5f);
+    draw->AddLine(ImVec2(leftX, railY), ImVec2(rightX, railY), status,
+                  navyStateContrast ? (settings.enabled ? 3.0f : 1.0f) : 2.0f);
     const ImVec4 bandSurface = TransportContrast::Over(
-        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .42f : .20f), transportSurface);
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, bandAlpha), transportSurface);
     const ImU32 centerDotColor = ImGui::GetColorU32(TransportContrast::ForSurface(primaryText, bandSurface, 3.2));
-    draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, centerDotColor, 12);
+    if (navyStateContrast && !settings.enabled)
+        draw->AddCircle(ImVec2(centerX, railY), 3.2f, centerDotColor, 12, 1.0f);
+    else
+        draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, centerDotColor, 12);
     const auto drawVerticalGrip = [&](float x, bool highlighted, const char* auditId) {
         const ImU32 gripFill = highlighted ? ImGui::GetColorU32(TransportContrast::ForSurface(
             theme.controlAccent, transportSurface, 3.2)) : status;
@@ -25569,13 +25665,19 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     }
 
     const float modeLeft = pos.x + width - statusWidth;
+    const auto navyMode = MistBlueChrome::EqModeState(theme, transportSurface, settings.enabled,
+        settings.mode == MagicEQMode::Notch, modeHit, modeHit && held);
+    const ImVec4 modeBackground = navyStateContrast ? navyMode.button : TransportContrast::Over(
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
     draw->AddRectFilled(ImVec2(modeLeft + 1.0f, pos.y + 4.0f),
                         ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
-                        ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
+                        navyStateContrast ? ImGui::GetColorU32(modeBackground) : ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    settings.enabled ? 0.16f : 0.10f)), 4.0f);
-    const ImVec4 modeBackground = TransportContrast::Over(
-        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
-    const ImU32 modeInk = ImGui::GetColorU32(TransportContrast::ForSurface(
+    if (navyStateContrast && settings.enabled && settings.mode == MagicEQMode::Pass)
+        draw->AddRect(ImVec2(modeLeft + 1.0f, pos.y + 4.0f),
+                      ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
+                      ImGui::GetColorU32(theme.chromeBorder), 4.0f);
+    const ImU32 modeInk = navyStateContrast ? ImGui::GetColorU32(navyMode.ink) : ImGui::GetColorU32(TransportContrast::ForSurface(
         settings.enabled ? statusColor : ImGui::ColorConvertU32ToFloat4(muted), modeBackground, 4.7));
     const char* modeLabel = GetMagicEQModeLabel(settings.enabled, static_cast<int>(settings.mode));
     const float modeTextWidth = ImGui::CalcTextSize(modeLabel).x;
@@ -25592,14 +25694,15 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                        ImVec2(pos.x + width - 3.0f, pos.y + 28.0f), true);
     if (modeIconOnly) {
         const float iconX = modeLeft + (statusWidth - 18.0f) * 0.5f;
-        TransportVisualAudit::Record("eq.mode", false, settings.enabled ? status : muted,
+        const ImU32 modeShape = navyStateContrast ? modeInk : (settings.enabled ? status : muted);
+        TransportVisualAudit::Record("eq.mode", false, modeShape,
             ImGui::GetColorU32(modeBackground), ImVec2(iconX, pos.y + 8), ImVec2(iconX + 18, pos.y + 24));
         if (settings.enabled)
             drawSteepnessCurve(draw, ImVec2(iconX, pos.y + 16.0f), settings.mode,
-                               settings.steepness, status);
+                               settings.steepness, modeShape);
         else
             draw->AddLine(ImVec2(iconX, pos.y + 16.0f),
-                          ImVec2(iconX + 18.0f, pos.y + 16.0f), muted, 1.5f);
+                          ImVec2(iconX + 18.0f, pos.y + 16.0f), modeShape, 1.5f);
     } else {
         draw->AddText(ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f),
                       modeInk, modeLabel);
@@ -26261,6 +26364,11 @@ static bool FloatDockedPanel(
     const bool floated = aura::ui::dock::BeginDockPanelFloat(
         g_dockLayout, moduleId, panel, committedLeafRect);
     if (!floated) return false;
+    if (std::strcmp(moduleId, "similar-sounds") == 0) {
+        // A full-height dock leaf is too narrow for the five-column results table.
+        panel.floatW = (std::max)(panel.floatW, 640.0f);
+        panel.floatH = (std::min)(panel.floatH, 620.0f);
+    }
     ++g_dockGeometryRevision;
     panel.wasDragging = false;
     return true;
@@ -28681,6 +28789,7 @@ static const char* StartupNoDatabaseSetupHint(const AppState& state) {
 }
 
 static void RenderNoDatabaseSetupEmptyState(AppState& state) {
+    EmptyStateVisualAudit::Begin(static_cast<int>(state.settings.theme));
     const ThemeColorScheme& tcs = ThemeColors::current();
     ImGuiStyle& style = ImGui::GetStyle();
     auto mixColor = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
@@ -28693,10 +28802,6 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     auto withAlpha = [](const ImVec4& color, float alpha) -> ImVec4 {
         return ImVec4(color.x, color.y, color.z, alpha);
     };
-    auto luminance = [](const ImVec4& color) -> float {
-        return color.x * 0.299f + color.y * 0.587f + color.z * 0.114f;
-    };
-
     const float panelWidth =
         std::min(ImGui::GetContentRegionAvail().x, 560.0f);
     const float horizontalPad =
@@ -28708,42 +28813,31 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     const float indent =
         (ImGui::GetContentRegionAvail().x - panelWidth) * 0.5f;
 
-    const ImVec4 panelBg =
-        withAlpha(mixColor(tcs.resultsBG, tcs.dialogPanelBG, 0.34f), 0.98f);
-    const ImVec4 panelGlow =
-        withAlpha(mixColor(panelBg, tcs.searchButtonBG, 0.10f), 0.24f);
-    const ImVec4 panelBorder =
-        withAlpha(mixColor(tcs.resultsOutline, tcs.controlAccent, 0.16f), 0.52f);
-    const ImVec4 panelAccentLine =
-        withAlpha(mixColor(tcs.searchButtonBG, tcs.controlAccent, 0.20f), 0.70f);
-    const ImVec4 titleColor =
-        withAlpha(mixColor(ThemeColors::peerPanelHeading(tcs), tcs.controlAccent, 0.12f), 0.98f);
-    const ImVec4 bodyColor =
-        withAlpha(mixColor(tcs.resultsText, tcs.resultsSecondaryText, 0.12f), 0.96f);
-    const ImVec4 hintColor =
-        withAlpha(mixColor(tcs.resultsSecondaryText, tcs.resultsText, 0.10f), 0.88f);
-    const ImVec4 separatorColor =
-        withAlpha(mixColor(panelBorder, panelAccentLine, 0.12f), 0.74f);
-
-    const ImVec4 primaryButtonBg =
-        withAlpha(mixColor(tcs.searchButtonBG, panelBg, 0.10f), 0.96f);
-    const ImVec4 primaryButtonHover =
-        withAlpha(mixColor(primaryButtonBg, tcs.resultsText, 0.08f), 1.0f);
-    const ImVec4 primaryButtonActive =
-        withAlpha(mixColor(primaryButtonBg, tcs.resultsText, 0.16f), 1.0f);
-    const ImVec4 primaryButtonText =
-        luminance(primaryButtonBg) >= 0.62f
-            ? withAlpha(mixColor(tcs.mainWindowBG, tcs.interfaceText, 0.20f), 0.98f)
-            : withAlpha(tcs.resultsText, 0.98f);
-
-    const ImVec4 secondaryButtonBg =
-        withAlpha(mixColor(panelBg, tcs.frameBgBase, 0.26f), 0.98f);
-    const ImVec4 secondaryButtonHover =
-        withAlpha(mixColor(secondaryButtonBg, tcs.searchButtonBG, 0.10f), 1.0f);
-    const ImVec4 secondaryButtonActive =
-        withAlpha(mixColor(secondaryButtonBg, tcs.searchButtonBG, 0.18f), 1.0f);
-    const ImVec4 secondaryButtonText =
-        withAlpha(mixColor(tcs.resultsText, tcs.resultsSecondaryText, 0.08f), 0.95f);
+    const auto palette = EmptyStatePalette::Make(tcs,
+        ImGui::ColorConvertU32ToFloat4(ImGui::GetColorU32(ImGuiCol_ChildBg)));
+    auto buttonSurfaces = [&](ImVec4 normal,ImVec4 hover,ImVec4 active) {
+        const ImVec4 bg = (ImGui::IsItemActive() && ImGui::IsItemHovered()) ? active :
+            ImGui::IsItemHovered() ? hover : normal;
+        auto surfaces=palette.surfaces;
+        for(auto& surface:surfaces) surface=TransportContrast::Over(TransportContrast::Quantize(bg),surface);
+        return surfaces;
+    };
+    const auto& panelBg = palette.panelBg;
+    const auto& panelGlow = palette.panelGlow;
+    const auto& panelBorder = palette.panelBorder;
+    const auto& panelAccentLine = palette.panelAccentLine;
+    const auto& titleColor = palette.titleColor;
+    const auto& bodyColor = palette.bodyColor;
+    const auto& hintColor = palette.hintColor;
+    const auto& separatorColor = palette.separatorColor;
+    const auto& primaryButtonBg = palette.primaryButtonBg;
+    const auto& primaryButtonHover = palette.primaryButtonHover;
+    const auto& primaryButtonActive = palette.primaryButtonActive;
+    const auto& primaryButtonText = palette.primaryButtonText;
+    const auto& secondaryButtonBg = palette.secondaryButtonBg;
+    const auto& secondaryButtonHover = palette.secondaryButtonHover;
+    const auto& secondaryButtonActive = palette.secondaryButtonActive;
+    const auto& secondaryButtonText = palette.secondaryButtonText;
 
     if (indent > 0.0f) {
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
@@ -28771,6 +28865,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, titleColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupTitle(state));
+    EmptyStateVisualAudit::Record("title",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     if (emphasisFont) {
@@ -28782,6 +28877,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, bodyColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupBody(state));
+    EmptyStateVisualAudit::Record("body",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
 
@@ -28794,6 +28890,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     if (ImGui::Button(L(File_NewDB), actionButtonSize)) {
         state.showNewDbDialog = true;
     }
+    EmptyStateVisualAudit::Record("new",buttonSurfaces(primaryButtonBg,primaryButtonHover,primaryButtonActive));
     ImGui::PopStyleColor(4);
 
     if (!stackButtons) {
@@ -28815,6 +28912,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
             SwitchDatabase(state, openPath);
         }
     }
+    EmptyStateVisualAudit::Record("open",buttonSurfaces(secondaryButtonBg,secondaryButtonHover,secondaryButtonActive));
     ImGui::PopStyleColor(4);
 
     ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y + style.FramePadding.y * 0.55f));
@@ -28835,6 +28933,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, hintColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupHint(state));
+    EmptyStateVisualAudit::Record("hint",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::EndGroup();
@@ -28843,6 +28942,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     const ImVec2 groupMax = ImGui::GetItemRectMax();
     const ImVec2 panelMin(groupMin.x - horizontalPad, groupMin.y - verticalPad);
     const ImVec2 panelMax(groupMax.x + horizontalPad, groupMax.y + verticalPad);
+    EmptyStateVisualAudit::End(panelMin,panelMax);
 
     splitter.SetCurrentChannel(drawList, 0);
     drawList->AddRectFilled(
@@ -29061,6 +29161,8 @@ void StartBatchFeatureExtraction(AppState& state) {
 }
 
 void DrawSimilarityIndexPanel(AppState& state) {
+    const bool sharedSimilarStyle = state.settings.theme != AppTheme::Custom &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
     // Counting indexed files scans the feature table: keep the existing 2s
     // cadence, but never reuse another database's counts or query during a switch.
     static int cachedIndexed = 0;
@@ -29085,7 +29187,7 @@ void DrawSimilarityIndexPanel(AppState& state) {
         lastCountTime = now;
     }
 
-    ImGui::Separator();
+    if (!sharedSimilarStyle) ImGui::Separator();
     ImGui::BeginDisabled(state.dbSwitchInProgress);
     ImGui::Text(L(Main_IndexedProgressFmt), cachedIndexed, cachedTotal);
     ThemeInspector::RegisterLastItem("similar.index.count");
@@ -29095,10 +29197,24 @@ void DrawSimilarityIndexPanel(AppState& state) {
         const float fraction = std::clamp(static_cast<float>(progress) / total, 0.0f, 1.0f);
         char progressLabel[48];
         snprintf(progressLabel, sizeof(progressLabel), "%d / %d", progress, total);
-        DrawUnifiedProgressBar(fraction, ImVec2(-1, 0), progressLabel);
+        DrawUnifiedProgressBar(fraction, ImVec2(-1, 18), progressLabel, true);
         ThemeInspector::RegisterLastItem("similar.index.progress");
+        if (sharedSimilarStyle) {
+            const auto& colors = ThemeColors::current();
+            ImGui::PushStyleColor(ImGuiCol_Button, colors.toolbarBG);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
+                ImLerp(colors.toolbarBG, colors.metadataPanelText, 0.10f));
+            ImGui::PushStyleColor(ImGuiCol_ButtonActive,
+                ImLerp(colors.toolbarBG, colors.metadataPanelText, 0.14f));
+            ImGui::PushStyleColor(ImGuiCol_Border, colors.chromeBorder);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        }
         if (ImGui::Button(L(Cancel), ImVec2(-1, 30))) {
             state.batchFeatureCancelRequested.store(true);
+        }
+        if (sharedSimilarStyle) {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(4);
         }
         ThemeInspector::RegisterLastItem("similar.index.cancel");
     } else {
@@ -29115,12 +29231,14 @@ void DrawSimilarityIndexPanel(AppState& state) {
         } else if (cachedTotal > 0 && state.batchFeatureCompletionNotice.load() &&
                    !state.batchFeatureCancelRequested.load()) {
             ImGui::Spacing();
-            ImGui::TextColored(ImVec4(0.3f, 0.9f, 0.3f, 1.0f), L(Main_IndexAllDone));
+            const ImVec4 success(0.3f, 0.9f, 0.3f, 1.0f);
+            ImGui::TextColored(sharedSimilarStyle ? TransportContrast::ForSurface(
+                success, ThemeColors::current().metadataPanelBG, 6.0) : success, L(Main_IndexAllDone));
             ThemeInspector::RegisterLastItem("similar.index.done");
         }
     }
     ImGui::EndDisabled();
-    ImGui::Separator();
+    if (!sharedSimilarStyle) ImGui::Separator();
 }
 
 void RenderUI(AppState& state) {
@@ -29310,7 +29428,9 @@ void RenderUI(AppState& state) {
     }
     const ImVec4 kThemeTextStrong = uiColors[ImGuiCol_Text];
     const ImVec4 kThemeTextMuted = uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_Text], 0.32f);
-    const ImVec4 kThemeTextSubtle = uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_ChildBg], 0.18f);
+    const ImVec4 kThemeTextSubtle = state.settings.theme == AppTheme::LapisBlue
+        ? ThemeColors::current().resultsSecondaryText
+        : uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_ChildBg], 0.18f);
     const ImVec4 kThemeTextChrome = uiMix(kThemeTextMuted, kThemeTextStrong, 0.16f);
     const ImVec4 kThemeTextMinor = uiMix(kThemeTextSubtle, kThemeTextMuted, 0.58f);
     const ImVec4 kThemeAccentText = kUseSoftChromeTheme ? uiMix(uiColors[ImGuiCol_Text], COLOR_ACCENT, 0.38f)
@@ -31125,18 +31245,20 @@ void RenderUI(AppState& state) {
         ImGui::OpenPopup(L(Dlg_ScanFolder));
         state.showScanDialog = false;
     }
-    ThemeDialogStyleScope scanDialogSurfaceStyle;
+    const bool layeredNavyDialog = state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized();
+    ThemeDialogStyleScope scanDialogSurfaceStyle(layeredNavyDialog);
     const ThemeColorScheme& scanTheme = ThemeColors::current();
-    const ImVec4 scanDialogBg = uiWithAlpha(scanTheme.dialogBG, 0.995f);
-    const ImVec4 scanDialogPanelBg = uiWithAlpha(uiMix(scanTheme.dialogPanelBG, scanTheme.frameBgBase, 0.10f), 1.0f);
+    const auto scanControls = MistBlueChrome::Controls(scanTheme);
+    const ImVec4 scanDialogBg = layeredNavyDialog ? scanTheme.dialogBG : uiWithAlpha(scanTheme.dialogBG, 0.995f);
+    const ImVec4 scanDialogPanelBg = layeredNavyDialog ? scanTheme.dialogPanelBG : uiWithAlpha(uiMix(scanTheme.dialogPanelBG, scanTheme.frameBgBase, 0.10f), 1.0f);
     const ImVec4 scanDialogBorder = uiWithAlpha(uiMix(scanTheme.chromeBorder, scanDialogPanelBg, 0.30f), 0.62f);
     const ImVec4 scanDialogAccent = uiWithAlpha(uiMix(scanTheme.controlAccent, scanTheme.interfaceText, 0.18f), 1.0f);
     const ImVec4 scanDialogAccentSoft = uiWithAlpha(uiMix(scanDialogAccent, scanDialogPanelBg, 0.52f), 1.0f);
-    const ImVec4 scanDialogText = uiWithAlpha(scanTheme.interfaceText, 0.96f);
-    const ImVec4 scanDialogMutedText = uiWithAlpha(uiMix(scanTheme.interfaceText, scanDialogPanelBg, 0.42f), 0.88f);
-    const ImVec4 scanDialogButtonBg = uiWithAlpha(uiMix(scanTheme.frameBgBase, scanDialogPanelBg, 0.18f), 0.96f);
-    const ImVec4 scanDialogButtonHover = uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.10f), 1.0f);
-    const ImVec4 scanDialogButtonActive = uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.18f), 1.0f);
+    const ImVec4 scanDialogText = layeredNavyDialog ? scanTheme.interfaceText : uiWithAlpha(scanTheme.interfaceText, 0.96f);
+    const ImVec4 scanDialogMutedText = layeredNavyDialog ? scanControls.muted : uiWithAlpha(uiMix(scanTheme.interfaceText, scanDialogPanelBg, 0.42f), 0.88f);
+    const ImVec4 scanDialogButtonBg = layeredNavyDialog ? scanControls.normal : uiWithAlpha(uiMix(scanTheme.frameBgBase, scanDialogPanelBg, 0.18f), 0.96f);
+    const ImVec4 scanDialogButtonHover = layeredNavyDialog ? scanControls.hovered : uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.10f), 1.0f);
+    const ImVec4 scanDialogButtonActive = layeredNavyDialog ? scanControls.active : uiWithAlpha(uiMix(scanDialogButtonBg, scanTheme.controlAccent, 0.18f), 1.0f);
     ImGui::PushStyleColor(ImGuiCol_PopupBg, scanDialogBg);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, scanDialogBg);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, scanDialogPanelBg);
@@ -32393,6 +32515,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             } else if (!quickAutoStarted) {
                 // 手动打开对话框 → 需要选择文件夹
                 if (ImGui::Button(L(Scan_SelectAndScan), ImVec2(220, 0))) {
@@ -32407,6 +32533,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             }
         }
         if (!state.isScanning &&
@@ -33041,7 +33171,7 @@ void RenderUI(AppState& state) {
         state.showNewDbDialog = false;
     }
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Always);
-    ThemeDialogStyleScope newDbDialogSurfaceStyle;
+    ThemeDialogStyleScope newDbDialogSurfaceStyle(state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized());
     if (BeginTransientScrollbarPopupModal(L(Dlg_NewDB), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         { ReadingTextScope _readingPopup;  // dialog body is a reading surface
         static char newDbNameBuf[128] = "Harken Search";
@@ -33050,6 +33180,12 @@ void RenderUI(AppState& state) {
         static int newDbCacheMode = (int)WaveformCachePolicy::Mode::MiniOnly;
         static bool newDbPending = false;
         static bool confirmOverwrite = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+        if (!state.qaNewDbName.empty()) {
+            snprintf(newDbNameBuf, sizeof(newDbNameBuf), "%s", state.qaNewDbName.c_str());
+            state.qaNewDbName.clear();
+        }
+#endif
         if (newDbPending && !state.dbSwitchInProgress) {
             newDbPending = false;
             if (state.dbSwitchError.empty()) {
@@ -33125,15 +33261,30 @@ void RenderUI(AppState& state) {
         bool canCreate = nameValid && (!exists || confirmOverwrite);
 
         ImGui::BeginDisabled(!canCreate);
-        if (ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32))) {
+        bool createClicked = ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32));
+#ifdef ARIS_PREVIEW_ISOLATION
+        const bool qaCreateClicked = std::exchange(state.qaCreateNewDbNow, false);
+        createClicked = createClicked || (qaCreateClicked && canCreate);
+#endif
+        if (createClicked) {
             if (Platform::FileSystem::IsNetworkPath(dbDir) ||
                 Platform::FileSystem::IsNetworkPath(fullPath)) {
                 newDbError = L(Db_RejectNetworkPath);
             } else {
-            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite)) {
+            auto deferredStart=[&state](bool started, const std::string& error) {
+                if (started) {
+                    newDbError.clear();
+                    newDbPending=true;
+                } else {
+                    newDbError=error.empty() ? state.dbSwitchError : error;
+                    if (newDbError.empty()) newDbError=state.database.getLastError();
+                    if (newDbError.empty()) newDbError=L(Db_CreateNotStarted);
+                }
+            };
+            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite, deferredStart)) {
                 newDbError.clear();
                 newDbPending = true;
-            } else {
+            } else if (!state.infoEditSession.awaitingChoice) {
                 if (newDbError.empty()) {
                     newDbError = state.database.getLastError();
                 }
@@ -33642,7 +33793,7 @@ void RenderUI(AppState& state) {
         std::clamp(state.settings.settingsDialogHeight, settingsMinSize.y, settingsMaxSize.y));
     ImGui::SetNextWindowSize(settingsOpenSize, ImGuiCond_Appearing);
     ImGui::SetNextWindowSizeConstraints(settingsMinSize, settingsMaxSize);
-    ThemeDialogStyleScope settingsDialogSurfaceStyle;
+    ThemeDialogStyleScope settingsDialogSurfaceStyle(state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized());
     ImGui::PushStyleColor(ImGuiCol_PopupBg, ThemeColors::current().dialogBG);
     ImGui::PushStyleColor(ImGuiCol_WindowBg, ThemeColors::current().dialogBG);
     ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().dialogPanelBG);
@@ -34099,7 +34250,7 @@ void RenderUI(AppState& state) {
                 const ThemeSwatch kThemeSwatches[] = {
                     { AppTheme::Dark,      L(Set_ThemeDark),      0xff0f141b, 0xff6f98c1, true  },
                     { AppTheme::RoseCedar, L(Set_ThemeRoseCedar), 0xfffdf3f6, 0xffe8b4c8, true  },
-                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xff0e1621, 0xffd7e4f1, true  },
+                    { AppTheme::LapisBlue, L(Set_ThemeLapisBlue), 0xff34485f, 0xfff1f5fa, true  },
                     { AppTheme::Ocean,     L(Set_ThemeOcean),     0xff141516, 0xff38a8be, false },
                     { AppTheme::JadeMist,  L(Set_ThemeJadeMist),  0xfffdfbf7, 0xff246e68, false },
                 };
@@ -37190,7 +37341,8 @@ void RenderUI(AppState& state) {
         auto pending = state.memoryBudget->getAndClearPendingEvicted();
         for (const auto& [t, e] : pending) {
             if (t == MemoryBudget::CacheType::Waveform) {
-                ReleaseWaveformEvictedEntry(state, e.key);
+                ReleaseWaveformEvictedEntry(state, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             } else if (t == MemoryBudget::CacheType::Cover) {
                 CoverModule::ReleaseCoverEvictedEntry(e.key);
             }
@@ -38227,7 +38379,7 @@ void RenderUI(AppState& state) {
             ? uiWithAlpha(toolbarTheme.historyCapsuleBG, 1.0f)
             : uiWithAlpha(uiMix(uiMix(uiColors[ImGuiCol_FrameBg], toolbarTheme.toolbarBG, 0.34f), kToolbarSearchCue, 0.06f), 1.0f);
         const ImVec4 kToolbarSearchBorder = kUseLapisBlueSearchChrome
-            ? uiWithAlpha(toolbarTheme.chromeBorder, 0.72f)
+            ? uiWithAlpha(toolbarTheme.chromeBorder, 1.0f)
             : uiWithAlpha(uiMix(kToolbarSearchCue, uiColors[ImGuiCol_Border], 0.18f), 0.34f);
         auto drawToolbarGlassTag = [&](const char* text, float anchorY, const ImVec4& tint, const ImVec4& textColor) {
             ImDrawList* chipDl = ImGui::GetWindowDrawList();
@@ -38751,14 +38903,15 @@ void RenderUI(AppState& state) {
                 (ThemeColors::current().modeCapsuleBG.x +
                  ThemeColors::current().modeCapsuleBG.y +
                  ThemeColors::current().modeCapsuleBG.z) > 2.10f;
+            const bool layeredNavyNav = state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized();
             const ImU32 navShellCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(ThemeColors::current().modeCapsuleBG, 0.92f))
+                ? ImGui::GetColorU32(uiWithAlpha(ThemeColors::current().modeCapsuleBG, layeredNavyNav ? 1.0f : 0.92f))
                 : IM_COL32(18, 24, 38, 215);
             const ImU32 navActiveBgCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(uiMix(ThemeColors::current().modeCapsuleActiveBG, kToolbarAccent, 0.12f), 0.98f))
+                ? ImGui::GetColorU32(layeredNavyNav ? ThemeColors::current().modeCapsuleActiveBG : uiWithAlpha(uiMix(ThemeColors::current().modeCapsuleActiveBG, kToolbarAccent, 0.12f), 0.98f))
                 : IM_COL32(255, 255, 255, 245);
             const ImU32 navActiveHoverBgCol = useSoftNavChrome
-                ? ImGui::GetColorU32(uiWithAlpha(uiMix(uiColors[ImGuiCol_TabHovered], uiColors[ImGuiCol_WindowBg], 0.66f), 0.98f))
+                ? ImGui::GetColorU32(layeredNavyNav ? ThemeColors::current().resultsTabHover : uiWithAlpha(uiMix(uiColors[ImGuiCol_TabHovered], uiColors[ImGuiCol_WindowBg], 0.66f), 0.98f))
                 : IM_COL32(240, 244, 255, 252);
             const ImU32 navActiveShadowCol = useSoftNavChrome
                 ? ImGui::GetColorU32(uiWithAlpha(uiMix(uiColors[ImGuiCol_Border], uiColors[ImGuiCol_WindowBg], 0.10f), isLightModeCapsuleTheme ? 0.08f : 0.20f))
@@ -39888,7 +40041,9 @@ void RenderUI(AppState& state) {
         rightRegionSplit ? infoLeafWidth : rightPanelWidth,
         rightRegionSplit ? infoLeafHeight : availHeight};
 
-    const ImU32 kTitleText = ImGui::GetColorU32(ThemeColors::peerPanelHeading(ThemeColors::current()));
+    const ImU32 kTitleText = ImGui::GetColorU32(state.settings.theme == AppTheme::LapisBlue
+        ? ThemeColors::current().interfaceText
+        : ThemeColors::peerPanelHeading(ThemeColors::current()));
     constexpr float kFilterInfoShellRadius =
         aura::ui::workspace::kCoreWorkspaceMetrics.compactControlRadius;
 
@@ -39956,6 +40111,9 @@ void RenderUI(AppState& state) {
         const aura::ui::workspace::ModuleWindowShellVisual shellVisual =
             aura::ui::workspace::ResolveModuleWindowShellVisual(workspacePalette, shellState);
         const bool isLightBody = (bodyBg.x + bodyBg.y + bodyBg.z) > 2.10f;
+        const ImVec4 moduleEdge = state.settings.theme == AppTheme::LapisBlue
+            ? (isLightBody ? kCurrentTheme.filterBrowserOutline : kCurrentTheme.chromeBorder)
+            : shellVisual.borderColor;
         const ImVec4 kLegacyDockShellSurface = uiWithAlpha(
             uiMix(
                 uiMix(bodyBg, kCurrentTheme.mainWindowBG, isLightBody ? 0.34f : 0.22f),
@@ -39995,7 +40153,7 @@ void RenderUI(AppState& state) {
         dl->AddRect(
             ImVec2(layout.shellMin.x + 0.5f, layout.shellMin.y + 0.5f),
             ImVec2(layout.shellMax.x - 0.5f, layout.shellMax.y - 0.5f),
-            ImGui::GetColorU32(shellVisual.borderColor),
+            ImGui::GetColorU32(moduleEdge),
             kFilterInfoShellRadius,
             shellRoundFlags,
             aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
@@ -40008,29 +40166,20 @@ void RenderUI(AppState& state) {
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
                                         ImDrawList* infoDl) {
-        const float pageAvailableWidth = shell.shellWidth - 48.0f;
+        const float pageAvailableWidth = shell.shellWidth - 28.0f;
         const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
         RenderFileInfoPageActions(infoState,
-            ImVec2(shell.insetL + shell.shellWidth - 48.0f - pageWidth, 0.0f),
+            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, 0.0f),
             shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
-        const float editIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
-        const float similarIconX = editIconX - iconBtnSize - 2.0f;
+        const float similarIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
         const float iconY = (shell.titleHeight - iconBtnSize) * 0.5f;
 
-        const bool canEdit = (infoState.currentFileId > 0);
-        const bool isEditing = infoState.metadataEditMode;
         const auto& panelTheme = ThemeColors::current();
         const ImVec4 panelBg = ThemeColors::infoPanelDockBG(panelTheme);
         const ImVec4 iconBase = uiMix(panelTheme.metadataPanelText, panelBg, 0.30f);
-        const ImVec4 iconActive = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.20f);
         const ImVec4 iconHover = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.34f);
-        const ImU32 iconColor = isEditing
-            ? ImGui::GetColorU32(uiWithAlpha(iconActive, 0.92f))
-            : canEdit
-                ? ImGui::GetColorU32(uiWithAlpha(iconBase, 0.72f))
-                : ImGui::GetColorU32(uiWithAlpha(uiMix(iconBase, panelBg, 0.40f), 0.34f));
         const ImU32 iconHoverColor = ImGui::GetColorU32(uiWithAlpha(iconHover, 0.98f));
 
         ImGui::SetCursorPos(ImVec2(similarIconX, iconY));
@@ -40062,73 +40211,15 @@ void RenderUI(AppState& state) {
         if (similarHovered) aura::ui::Tooltip(L(Similar_OpenTooltip));
         ImGui::PopID();
 
-        ImGui::SetCursorPos(ImVec2(editIconX, iconY));
-        ImGui::PushID("##InfoEditMetaIcon");
-        if (!canEdit && !isEditing) ImGui::BeginDisabled();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.18f), 0.72f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.28f), 0.82f));
-        const bool editClicked = ImGui::Button("##editMetaBtn", ImVec2(iconBtnSize, iconBtnSize));
-        const bool editHovered = ImGui::IsItemHovered();
-        ImGui::PopStyleColor(3);
-        {
-            const ImVec2 btnMin = ImGui::GetItemRectMin();
-            const float s = iconBtnSize;
-            const float cx = btnMin.x + s * 0.5f;
-            const float cy = btnMin.y + s * 0.5f;
-            const ImU32 col = editHovered ? iconHoverColor : iconColor;
-            const float thick = 1.4f;
-            const ImVec2 p0(cx + s * 0.28f, cy - s * 0.28f);
-            const ImVec2 p1(cx - s * 0.18f, cy + s * 0.18f);
-            infoDl->AddLine(p0, p1, col, thick);
-            infoDl->AddLine(p1, ImVec2(cx - s * 0.32f, cy + s * 0.32f), col, thick);
-            infoDl->AddLine(ImVec2(cx + s * 0.20f, cy - s * 0.36f),
-                            ImVec2(cx + s * 0.36f, cy - s * 0.20f), col, thick);
-        }
-        if (editClicked) {
-            if (isEditing) {
-                infoState.metadataEditMode = false;
-                infoState.metadataBatchMode = false;
-                infoState.metadataBatchIds.clear();
-            } else if (canEdit) {
-                const bool isMultiSelect = infoState.selectedIndicesSet.size() > 1;
-                infoState.metadataEditMode = true;
-                if (isMultiSelect) {
-                    infoState.metadataBatchMode = true;
-                    infoState.metadataBatchIds.clear();
-                    for (int idx : infoState.selectedIndicesSet) {
-                        if (idx >= 0 && idx < (int)infoState.searchResults.size())
-                            infoState.metadataBatchIds.push_back(infoState.searchResults[idx].id);
-                    }
-                    infoState.metadataDescBuffer[0] = '\0';
-                    infoState.metadataKeywordsBuffer[0] = '\0';
-                    infoState.metadataCategoryBuffer[0] = '\0';
-                } else {
-                    infoState.metadataBatchMode = false;
-                    infoState.metadataEditFileId = infoState.currentFileId;
-                    AudioRecord rec = infoState.database.getFileById(infoState.currentFileId);
-                    strncpy_s(infoState.metadataDescBuffer, sizeof(infoState.metadataDescBuffer), rec.description.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataKeywordsBuffer, sizeof(infoState.metadataKeywordsBuffer), rec.keywords.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataCategoryBuffer, sizeof(infoState.metadataCategoryBuffer), rec.category.c_str(), _TRUNCATE);
-                }
-            }
-        }
-        if (editHovered) {
-            const char* tip = isEditing ? L(Info_ExitEditMode)
-                : (infoState.selectedIndicesSet.size() > 1 ? L(Info_BatchEditMetadata) : L(Info_EditMetadata));
-            HarkenSearch::SetTooltip("%s", tip);
-        }
-        if (!canEdit && !isEditing) ImGui::EndDisabled();
-        ImGui::PopID();
-        return 48.0f + pageWidth;
+        return 28.0f + pageWidth;
     };
 
     auto drawFloatingInfoTitleActions = [&]() {
         ImGuiWindow* window = ImGui::GetCurrentWindow();
         const ImRect title = window->TitleBarRect();
         const ImVec2 saved = ImGui::GetCursorPos();
+        ThemeInspector::RegisterZone(ImVec2(title.Max.x-title.GetHeight(),title.Min.y),title.Max,
+            "info.close",L(Panel_Hide),"src/main.cpp");
         DockModuleShellLayout shell;
         shell.insetL = 0.0f;
         shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
@@ -40261,22 +40352,33 @@ void RenderUI(AppState& state) {
         // Keep the native title's move/close hit targets, but render one shell
         // using the filter's existing chrome instead of nesting a second shell.
         const DockModuleShellLayout shell;
+        const bool infoFamily = state.settings.theme != AppTheme::Custom &&
+            !state.settings.useCustomColors && !ThemeColors::customized() &&
+            (std::strcmp(moduleId, "info") == 0 ||
+             std::strcmp(moduleId, "similar-sounds") == 0);
+        const ImVec4 floatingTitleSurface = infoFamily
+            ? uiWithAlpha(workspaceDockTitleSurface, 1.0f) : workspaceDockTitleSurface;
+        const ImVec4 floatingTitleInk = infoFamily
+            ? TransportContrast::ForSurface(ImGui::ColorConvertU32ToFloat4(kTitleText),
+                floatingTitleSurface, 4.7)
+            : ImGui::ColorConvertU32ToFloat4(kTitleText);
         ImFont* emph = GetUIFontEmphasis();
         if (emph) ImGui::PushFont(emph);
         ImGui::PushStyleVar(ImGuiStyleVar_FramePadding,
             ImVec2(8.0f, (std::max)(0.0f, (shell.titleHeight - ImGui::GetFontSize()) * 0.5f)));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, ImVec2(0.0f, 0.5f));
         ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,
-            ImVec2(shell.insetL + shell.innerPad, shell.innerPad));
+            infoFamily ? ImVec2(8.0f, 8.0f) : ImVec2(shell.insetL + shell.innerPad, shell.innerPad));
         // Draw the one rounded perimeter below. Native viewport decorations
         // otherwise force their perimeter to square even with WindowRounding.
         ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
         ImGui::PushStyleColor(ImGuiCol_WindowBg,
-            uiWithAlpha(ThemeColors::current().filterBrowserBG, 1.0f));
-        ImGui::PushStyleColor(ImGuiCol_TitleBg, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, workspaceDockTitleSurface);
-        ImGui::PushStyleColor(ImGuiCol_Text, kTitleText);
+            infoFamily ? ThemeColors::infoPanelDockBG(ThemeColors::current())
+                       : uiWithAlpha(ThemeColors::current().filterBrowserBG, 1.0f));
+        ImGui::PushStyleColor(ImGuiCol_TitleBg, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgActive, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, floatingTitleSurface);
+        ImGui::PushStyleColor(ImGuiCol_Text, floatingTitleInk);
         ImGui::PushStyleColor(ImGuiCol_BorderShadow, ImVec4(0.0f, 0.0f, 0.0f, 0.0f));
         ImGuiWindowFlags floatFlags = ImGuiWindowFlags_NoSavedSettings |
             ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoCollapse;
@@ -40306,10 +40408,13 @@ void RenderUI(AppState& state) {
 #endif
             ImDrawList* shellDrawList = ImGui::GetWindowDrawList();
             shellDrawList->PushClipRect(pos, ImVec2(pos.x + size.x, pos.y + size.y), false);
+            const ImVec4 floatingEdge = infoFamily
+                ? ThemeColors::infoPanelDockEdge(ThemeColors::current())
+                : workspacePalette.perimeter;
             shellDrawList->AddRect(
                 ImVec2(pos.x + 0.5f, pos.y + 0.5f),
                 ImVec2(pos.x + size.x - 0.5f, pos.y + size.y - 0.5f),
-                ImGui::GetColorU32(workspacePalette.perimeter),
+                ImGui::GetColorU32(floatingEdge),
                 kFilterInfoShellRadius, ImDrawFlags_RoundCornersAll,
                 aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
             shellDrawList->AddLine(
@@ -40425,6 +40530,8 @@ void RenderUI(AppState& state) {
                 uiMix(tcs.filterBrowserBG, tcs.mainWindowBG, 0.10f), 0.995f);
             ImGui::PushStyleColor(ImGuiCol_ChildBg,              leftPanelBg);
             ImGui::PushStyleColor(ImGuiCol_Text,                 leftPanelText);
+            ImGui::PushStyleColor(ImGuiCol_TextDisabled, state.settings.theme == AppTheme::LapisBlue
+                ? tcs.filterBrowserText : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::PushStyleColor(ImGuiCol_Border,               leftPanelOutline);
             ImGui::PushStyleColor(ImGuiCol_PopupBg,              leftPanelPopupBg);
             ImGui::PushStyleColor(ImGuiCol_FrameBg,              leftPanelInput);
@@ -40525,7 +40632,7 @@ void RenderUI(AppState& state) {
                 ImVec2(wp.x, wp.y), ImVec2(wp.x + 2.0f, wp.y + ws.y),
                 "filterBrowserOutline", L(ThemeCol_filterBrowserOutline));
         }
-        ImGui::PopStyleColor(20);  // filterBrowser* + FrameBg* + PopupBg + transient scrollbar track
+        ImGui::PopStyleColor(21);  // filterBrowser* + readable muted text + FrameBg* + PopupBg + transient scrollbar track
         ImGui::PopStyleVar(4); // FrameBorderSize + FramePadding + ItemSpacing + FrameRounding.
         ImGui::EndChild();
 
@@ -40641,7 +40748,8 @@ void RenderUI(AppState& state) {
         ImGui::PushStyleVar(ImGuiStyleVar_TabBorderSize, 0.0f);
         const bool useLightResultsTabs =
             (resultsTheme.resultsTabActive.x + resultsTheme.resultsTabActive.y + resultsTheme.resultsTabActive.z) > 1.80f;
-        const ImVec4 kListTabText = useLightResultsTabs
+        const ImVec4 kListTabText = state.settings.theme == AppTheme::LapisBlue
+            ? MistBlueChrome::ResultsTabText(resultsTheme) : useLightResultsTabs
             ? uiWithAlpha(uiMix(resultsTheme.resultsText, resultsTheme.chromeBorder, 0.18f), 0.995f)
             : uiWithAlpha(uiMix(resultsTheme.resultsText, resultsTheme.resultsSelection, 0.12f), 0.96f);
         ImGui::PushStyleColor(ImGuiCol_Text, kListTabText);
@@ -43406,11 +43514,56 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            // 占位符：仅用 Dummy 保持列宽，不画背景框
                             ImVec2 pos = ImGui::GetCursorScreenPos();
-                            ImGui::Dummy(ImVec2(waveWidth, waveHeight));
-                            float cy = pos.y + waveHeight / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(entry.fullPath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(waveWidth, waveHeight));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = pos.x + playPos * waveWidth;
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, pos.y), ImVec2(x, pos.y + waveHeight),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                                if (MiniWaveformPresentation::CanSeek(false, hasRetained)) {
+                                    ImGui::SetCursorScreenPos(pos);
+                                    ImGui::InvisibleButton(("wavebseek" + std::to_string(i)).c_str(),
+                                                           ImVec2(waveWidth, waveHeight));
+                                    if (ImGui::IsItemActive() || ImGui::IsItemClicked()) {
+                                        const ImVec2 visualMin = ImGui::GetItemRectMin();
+                                        const float visualWidth = ImGui::GetItemRectSize().x;
+                                        const float seekPos = std::clamp(
+                                            (ImGui::GetMousePos().x - visualMin.x) / visualWidth,
+                                            0.0f, 1.0f);
+                                        if (!isCurrentFile) {
+                                            if (ImGui::IsItemClicked()) {
+                                                state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                                state.uiState.miniWaveSeekApplied = true;
+                                                state.uiState.miniWaveSeekTargetPath = entry.fullPath;
+                                                state.uiState.lastMiniWaveSeekPos = seekPos;
+                                                BeginBrowserPathAudition(state, entry, true);
+                                                MarkFilePlayed(state, entry.fullPath, 0, false);
+                                                state.audioEngine.seekToPosition(seekPos);
+                                            }
+                                        } else if (ImGui::IsItemClicked()) {
+                                            state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                            if (!state.audioEngine.isPlaying())
+                                                state.audioEngine.play();
+                                        } else if (std::abs(seekPos - state.uiState.lastMiniWaveSeekPos) > 0.002f) {
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                        }
+                                    }
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(waveWidth, waveHeight));
+                                float cy = pos.y + waveHeight / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
                     }
 
@@ -44357,7 +44510,7 @@ void RenderUI(AppState& state) {
                         }
 // F-006: Edit Metadata context entry
                         if (ProductEdition::hasFeature("metadata_edit")) {
-                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry))) {
+                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry),nullptr,false,!state.infoEditSession.active)) {
                             if (isMulti) {
                                 state.metadataBatchMode = true;
                                 state.metadataBatchIds.clear();
@@ -44980,9 +45133,23 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            ImGui::Dummy(ImVec2(cellW, cellH));
-                            float cy = cellMin.y + cellH / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(record.filePath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(cellW, cellH));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = waveLayout.seekXFromNormalized(playPos);
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, cellMin.y), ImVec2(x, cellMin.y + cellH),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(cellW, cellH));
+                                float cy = cellMin.y + cellH / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
 
                         // 3. Mini 波形热区：始终提交 InvisibleButton，避免 rowHovered 导致松手时丢点击；支持按住 scrub
@@ -45601,13 +45768,7 @@ void RenderUI(AppState& state) {
                     state.waveformCache.erase(state.waveformCache.begin());
                 }
                 // Invalidate stale GPU texture so it regenerates from new data
-                auto texIt = g_miniWaveTextureCache.find(res.filePath);
-                if (texIt != g_miniWaveTextureCache.end()) {
-                    if (texIt->second.textureId != 0) {
-                        DeleteMiniWaveTexture(texIt->second.textureId);
-                    }
-                    g_miniWaveTextureCache.erase(texIt);
-                }
+                InvalidateMiniWaveTextureAfterFrame(res.filePath);
                 state.waveformCache[res.filePath] = std::move(res.waveform);
                 state.waveformFailed.erase(res.filePath);
                 state.waveformMiniCacheMiss.erase(res.filePath);
@@ -46964,6 +47125,8 @@ void RenderUI(AppState& state) {
             float normalRatio = std::min(volume / 100.0f, 1.0f);
             float fillWidth = fillRatio * (volWidth - 4);
             float normalWidth = normalRatio * (volWidth - 4);
+            ImU32 volumeFillStart=kThemeControlShell,volumeFillEnd=kThemeControlShell;
+            ImU32 volumeOverStart=kThemeControlShell,volumeOverEnd=kThemeControlShell;
 
             // Normal range (use custom color if enabled)
             if (normalWidth > 0) {
@@ -46997,6 +47160,7 @@ void RenderUI(AppState& state) {
                         ? ImGui::GetColorU32(uiWithAlpha(uiMix(tcsTransport.meterWarning, tcsTransport.waveformColor, 0.16f), 1.0f))
                         : fillMid;
                 }
+                volumeFillStart=fillStart;volumeFillEnd=fillEnd;
                 volDl->AddRectFilledMultiColor(
                     ImVec2(volPos.x + 2, volPos.y + 2),
                     ImVec2(volPos.x + 2 + normalWidth, volPos.y + volHeight - 2),
@@ -47008,6 +47172,7 @@ void RenderUI(AppState& state) {
                 float overStart = volPos.x + 2 + normalWidth;
                 ImU32 overColor = ThemeMascot::getInstance().getOverdriveFillStart(mascotTheme);
                 ImU32 overColorBright = ThemeMascot::getInstance().getOverdriveFillEnd(mascotTheme);
+                volumeOverStart=overColor;volumeOverEnd=overColorBright;
                 volDl->AddRectFilledMultiColor(
                     ImVec2(overStart, volPos.y + 2),
                     ImVec2(volPos.x + 2 + fillWidth, volPos.y + volHeight - 2),
@@ -47030,27 +47195,30 @@ void RenderUI(AppState& state) {
             char volText[16];
             snprintf(volText, sizeof(volText), "%.0f%%", volume);
             ImVec2 textSize = ImGui::CalcTextSize(volText);
-            // A small opaque backing keeps the value readable across the
-            // moving fill boundary, gradient, and overdrive effect.
-            const ImVec4 volumeLabelSurface = TransportContrast::Over(
+            const ImVec4 volumeShellSurface = TransportContrast::Over(
                 ImGui::ColorConvertU32ToFloat4(kThemeControlShell), transportBarBg);
-            const ImU32 textColor = ImGui::GetColorU32(TransportContrast::ForSurface(
-                tcsTransport.interfaceText, volumeLabelSurface, 4.7));
             float jitter = isOverdriven ? (signalLevel * 1.5f * sinf(time * 40.0f)) : 0.0f;
             ImVec2 textDrawPos(
                 volPos.x + (volWidth - textSize.x) / 2,
                 volPos.y + (volHeight - textSize.y) / 2 + jitter
             );
-            volDl->AddRectFilled(ImVec2(textDrawPos.x - 3, textDrawPos.y - 1),
-                ImVec2(textDrawPos.x + textSize.x + 3, textDrawPos.y + textSize.y + 1),
-                ImGui::GetColorU32(volumeLabelSurface), 2.0f);
-            volDl->AddText(textDrawPos, textColor, volText);
+            auto volumeSurfaceAt = [&](float x) {
+                const float offset=x-(volPos.x+2);
+                // Match the existing rectangles and their paint order, including
+                // the reverse-directed overdrive rectangle.
+                const bool over=isOverdriven && fillWidth!=normalWidth &&
+                    offset>=(std::min)(normalWidth,fillWidth) && offset<(std::max)(normalWidth,fillWidth);
+                const bool normal=!over && offset>=0 && offset<normalWidth;
+                if(!normal && !over) return volumeShellSurface;
+                const float t=std::clamp(normal ? offset/normalWidth :
+                    (offset-normalWidth)/(fillWidth-normalWidth),0.f,1.f);
+                const auto a=ImGui::ColorConvertU32ToFloat4(normal ? volumeFillStart : volumeOverStart);
+                const auto b=ImGui::ColorConvertU32ToFloat4(normal ? volumeFillEnd : volumeOverEnd);
+                return TransportContrast::Over(ImLerp(a,b,t),volumeShellSurface);
+            };
+            TransportValueText::Draw(volDl,textDrawPos,volText,tcsTransport.interfaceText,
+                volumeSurfaceAt,"volume.label");
             if (TransportVisualAudit::Collecting()) {
-                for (int edge = 0; edge < 3; ++edge) {
-                    const ImU32 bg = ImGui::GetColorU32(volumeLabelSurface);
-                    TransportVisualAudit::Record(edge == 0 ? "volume.label" : (edge == 1 ? "volume.label.center" : "volume.label.right"),
-                        true, textColor, bg, textDrawPos, ImVec2(textDrawPos.x + textSize.x, textDrawPos.y + textSize.y));
-                }
                 TransportVisualAudit::Record("volume.outline", false, borderColor, ImGui::GetColorU32(transportBarBg),
                     volPos, ImVec2(volPos.x + volWidth, volPos.y + volHeight));
             }
@@ -47458,7 +47626,8 @@ void RenderUI(AppState& state) {
                 ImGui::SetCursorScreenPos(magicEQPos);
                 if (DrawMagicEQBar("##MagicEQ", magicEQ,
                                    magicEqSampleRate,
-                                   saveMagicEQSettings, transportBarBg))
+                                   saveMagicEQSettings, transportBarBg,
+                                   state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized()))
                     state.audioEngine.setMagicEQ(magicEQ);
                 if (saveMagicEQSettings) SaveAppSettings(state);
                 ThemeInspector::RegisterZone(
@@ -48012,10 +48181,9 @@ void RenderUI(AppState& state) {
                 const ImU32 blendInk = ImGui::GetColorU32(TransportContrast::ForSurface(
                     tcsTransport.interfaceText, spectrumFrame, 4.7));
                 if (TransportBlendSlider::Draw(u8"##SpectrogramBlend", &blendPercent,
-                    blendInk, ImGui::GetColorU32(spectrumFrame))) {
+                    blendInk, ImGui::GetColorU32(transportBarBg))) {
                     state.spectrogramBlend = blendPercent / 100.0f;
                 }
-                TransportVisualAudit::Item("spectrum.blend", true, blendInk, ImGui::GetColorU32(spectrumFrame));
                 TransportVisualAudit::Item("spectrum.blend.grip", false, ImGui::GetColorU32(ImGuiCol_SliderGrab), ImGui::GetColorU32(spectrumFrame));
                 if (HoveredForHelp()) {
                     HarkenSearch::SetTooltip("%s", L(Wave_BlendTooltip));
@@ -50976,7 +51144,7 @@ void RenderUI(AppState& state) {
         const ImRect label(title.Min, ImVec2(
             (std::min)(title.Min.x + labelWidth, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
         const float infoActionsWidth = std::strcmp(moduleId, "info") == 0
-            ? 48.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-48.0f) : 0.0f;
+            ? 28.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-28.0f) : 0.0f;
         const ImRect dockDragLabel(title.Min, ImVec2(
             (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f - infoActionsWidth), title.Max.y));
         drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered() && dockDragLabel.Contains(ImGui::GetMousePos()));
@@ -51325,7 +51493,20 @@ void RenderUI(AppState& state) {
                 }
                 ImGui::EndPopup();
             }
+            const ImVec2 similarContentMin = ImGui::GetCursorScreenPos();
+            const ImVec2 similarContentSize = ImGui::GetContentRegionAvail();
             aura::ui::RenderSimilarSoundsContent(state);
+            if (state.settings.theme != AppTheme::Custom &&
+                !state.settings.useCustomColors && !ThemeColors::customized()) {
+                ImDrawList* similarDl = ImGui::GetWindowDrawList();
+                similarDl->AddRect(
+                    similarContentMin,
+                    ImVec2(similarContentMin.x + similarContentSize.x,
+                           similarContentMin.y + similarContentSize.y),
+                    ImGui::GetColorU32(ThemeColors::infoPanelDockEdge(ThemeColors::current())),
+                    kFilterInfoShellRadius, ImDrawFlags_RoundCornersAll,
+                    aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
+            }
         }
         if (!similarOpen) {
             state.panelSimilarSounds.visible = false;
@@ -51505,7 +51686,10 @@ void RenderUI(AppState& state) {
                     dockFlags)) {
                 ImDrawList* similarDl = ImGui::GetWindowDrawList();
                 const auto& similarTheme = ThemeColors::current();
-                const ImVec4 similarBody = uiWithAlpha(similarTheme.filterBrowserBG, 1.0f);
+                const bool sharedSimilarStyle = state.settings.theme != AppTheme::Custom &&
+                    !state.settings.useCustomColors && !ThemeColors::customized();
+                const ImVec4 similarBody = uiWithAlpha(
+                    sharedSimilarStyle ? similarTheme.metadataPanelBG : similarTheme.filterBrowserBG, 1.0f);
                 const DockModuleShellLayout similarShell = drawDockModuleShell(
                     similarDl,
                     ImGui::GetWindowPos(),
@@ -51541,15 +51725,17 @@ void RenderUI(AppState& state) {
                     }
                     ImGui::EndPopup();
                 }
+                const float similarContentInset = sharedSimilarStyle ? 4.0f : 0.0f;
                 ImGui::SetCursorPos(ImVec2(
-                    similarShell.insetL + similarShell.innerPad,
-                    similarShell.insetT + similarShell.titleHeight + 4.0f));
+                    similarShell.insetL + similarShell.innerPad + similarContentInset,
+                    similarShell.insetT + similarShell.titleHeight + 4.0f + similarContentInset));
                 const float similarContentWidth = std::max(1.0f,
                     leaf.rect.width - similarShell.insetL - similarShell.insetR -
-                        similarShell.innerPad * 2.0f);
+                        similarShell.innerPad * 2.0f - similarContentInset * 2.0f);
                 const float similarContentHeight = std::max(1.0f,
                     leaf.rect.height - similarShell.insetT - similarShell.insetB -
-                        similarShell.titleHeight - 8.0f);
+                        similarShell.titleHeight - 8.0f - similarContentInset * 2.0f);
+                const ImVec2 similarContentMin = ImGui::GetCursorScreenPos();
                 if (ImGui::BeginChild(
                         "##DockedSimilarSoundsContent",
                         ImVec2(similarContentWidth, similarContentHeight),
@@ -51560,6 +51746,16 @@ void RenderUI(AppState& state) {
                     aura::ui::RenderSimilarSoundsContent(state);
                 }
                 ImGui::EndChild();
+                if (sharedSimilarStyle) {
+                    similarDl->AddRect(
+                        similarContentMin,
+                        ImVec2(similarContentMin.x + similarContentWidth,
+                               similarContentMin.y + similarContentHeight),
+                        ImGui::GetColorU32(ThemeColors::infoPanelDockEdge(similarTheme)),
+                        kFilterInfoShellRadius,
+                        ImDrawFlags_RoundCornersAll,
+                        aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
+                }
             }
             if (!open) {
                 FloatDockedPanel("similar-sounds", state.panelSimilarSounds, leaf.rect);
