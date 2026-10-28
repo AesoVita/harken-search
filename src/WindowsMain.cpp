@@ -13592,7 +13592,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                                 uint64_t requiredBytes = (currentUsage + waveformSizeBytes) - budget;
                                 auto evicted = state.memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, requiredBytes);
                                 for (const auto& evictEntry : evicted)
-                                    ReleaseWaveformEvictedEntry(state, evictEntry.key);
+                                    ReleaseWaveformEvictedEntry(state, evictEntry.key,
+                                        MiniWaveformPresentation::Removal::BudgetEviction);
                             }
                         }
                         
@@ -13607,6 +13608,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                             state.waveformCache.erase(state.waveformCache.begin());
                         }
                     }
+                    InvalidateMiniWaveTextureAfterFrame(result.filePath);
                     state.waveformCache[result.filePath] = std::move(result.waveform);
                 } else {
                     int attempt = 1;
@@ -13845,6 +13847,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             wglMakeCurrent(g_mainHdc ? g_mainHdc : hdc, g_hRC ? g_hRC : hglrc);
         }
 #endif
+        FlushDeferredMiniWaveTextureDeletes();
         aura::diagnostics::FrameBudgetDiagnostics::markGlRender();
         DevTools_EndFramePhase();
 
