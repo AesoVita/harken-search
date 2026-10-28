@@ -33,6 +33,9 @@ def test_database_browser_playlist_share_one_filetablev6_surface() -> None:
     ]
     assert 'BeginTransientScrollbarTable("FileTableV6"' in center
     setup = _file_table_setup_block()
+    # Database-only empty-state gates precede the shared table. The table's
+    # columns, border and inset must still be identical across view modes.
+    setup = setup[setup.index("ImGuiTableFlags tableFlags =") :]
     assert "ViewMode::Database" not in setup
     assert "ViewMode::Browser" not in setup
     assert "ViewMode::Playlist" not in setup

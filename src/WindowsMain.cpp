@@ -6037,6 +6037,30 @@ static void PollQaCommandFile(AppState& state) {
                    + ",\"path\":\"" + jsonEscape(path) + "\"}";
         }
 
+    } else if (cmd == "folder_shortcut") {
+#if ARIS_PREVIEW_ISOLATION
+        // Exercise the same bookmark and navigation handlers as the UI,
+        // without injecting input into the user's desktop.
+        extern bool AddBrowserFolderToQuickPaths(AppState&, const std::string&);
+        extern void OpenFolderShortcut(AppState&, const FolderShortcut&);
+        const std::string path = getStr(raw, "bookmark_path");
+        const int index = getInt(raw, "open_index", -1);
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire) ||
+            (!path.empty() && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(path)) ||
+            index < -1 || index >= static_cast<int>(state.folderShortcuts.size()) ||
+            (index >= 0 && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(state.folderShortcuts[index].path))) {
+            result = R"({"ok":false,"error":"isolated_shortcut_required"})";
+        } else {
+            if (!path.empty()) AddBrowserFolderToQuickPaths(state, path);
+            if (index >= 0) OpenFolderShortcut(state, state.folderShortcuts[index]);
+            result = "{\"ok\":true,\"mode\":\"" + std::string(viewModeToString(state.viewMode)) +
+                "\",\"browser_path\":\"" + jsonEscape(state.fileBrowser.getCurrentPath()) +
+                "\",\"entries\":" + std::to_string(state.fileBrowser.activeEntries().size()) +
+                ",\"shortcut_count\":" + std::to_string(state.folderShortcuts.size()) + "}";
+        }
+#else
+        result = R"({"ok":false,"error":"preview_isolation_disabled"})";
+#endif
     } else if (cmd == "set_view_mode") {
         std::string mode = getStr(raw, "mode");
         std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);

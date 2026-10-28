@@ -1238,6 +1238,7 @@ enum class WaveformColorMode {
 struct FolderShortcut {
     std::string name;
     std::string path;
+    bool openInBrowser = false; // Legacy shortcuts retain database navigation.
 };
 
 // Play History Item
