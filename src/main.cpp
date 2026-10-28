@@ -29279,7 +29279,9 @@ void RenderUI(AppState& state) {
     }
     const ImVec4 kThemeTextStrong = uiColors[ImGuiCol_Text];
     const ImVec4 kThemeTextMuted = uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_Text], 0.32f);
-    const ImVec4 kThemeTextSubtle = uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_ChildBg], 0.18f);
+    const ImVec4 kThemeTextSubtle = state.settings.theme == AppTheme::LapisBlue
+        ? ThemeColors::current().resultsSecondaryText
+        : uiMix(uiColors[ImGuiCol_TextDisabled], uiColors[ImGuiCol_ChildBg], 0.18f);
     const ImVec4 kThemeTextChrome = uiMix(kThemeTextMuted, kThemeTextStrong, 0.16f);
     const ImVec4 kThemeTextMinor = uiMix(kThemeTextSubtle, kThemeTextMuted, 0.58f);
     const ImVec4 kThemeAccentText = kUseSoftChromeTheme ? uiMix(uiColors[ImGuiCol_Text], COLOR_ACCENT, 0.38f)
@@ -38195,7 +38197,7 @@ void RenderUI(AppState& state) {
             ? uiWithAlpha(toolbarTheme.historyCapsuleBG, 1.0f)
             : uiWithAlpha(uiMix(uiMix(uiColors[ImGuiCol_FrameBg], toolbarTheme.toolbarBG, 0.34f), kToolbarSearchCue, 0.06f), 1.0f);
         const ImVec4 kToolbarSearchBorder = kUseLapisBlueSearchChrome
-            ? uiWithAlpha(toolbarTheme.chromeBorder, 0.72f)
+            ? uiWithAlpha(toolbarTheme.chromeBorder, 1.0f)
             : uiWithAlpha(uiMix(kToolbarSearchCue, uiColors[ImGuiCol_Border], 0.18f), 0.34f);
         auto drawToolbarGlassTag = [&](const char* text, float anchorY, const ImVec4& tint, const ImVec4& textColor) {
             ImDrawList* chipDl = ImGui::GetWindowDrawList();
@@ -39926,6 +39928,9 @@ void RenderUI(AppState& state) {
         const aura::ui::workspace::ModuleWindowShellVisual shellVisual =
             aura::ui::workspace::ResolveModuleWindowShellVisual(workspacePalette, shellState);
         const bool isLightBody = (bodyBg.x + bodyBg.y + bodyBg.z) > 2.10f;
+        const ImVec4 moduleEdge = state.settings.theme == AppTheme::LapisBlue
+            ? (isLightBody ? kCurrentTheme.filterBrowserOutline : kCurrentTheme.chromeBorder)
+            : shellVisual.borderColor;
         const ImVec4 kLegacyDockShellSurface = uiWithAlpha(
             uiMix(
                 uiMix(bodyBg, kCurrentTheme.mainWindowBG, isLightBody ? 0.34f : 0.22f),
@@ -39965,7 +39970,7 @@ void RenderUI(AppState& state) {
         dl->AddRect(
             ImVec2(layout.shellMin.x + 0.5f, layout.shellMin.y + 0.5f),
             ImVec2(layout.shellMax.x - 0.5f, layout.shellMax.y - 0.5f),
-            ImGui::GetColorU32(shellVisual.borderColor),
+            ImGui::GetColorU32(moduleEdge),
             kFilterInfoShellRadius,
             shellRoundFlags,
             aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
@@ -40376,6 +40381,8 @@ void RenderUI(AppState& state) {
                 uiMix(tcs.filterBrowserBG, tcs.mainWindowBG, 0.10f), 0.995f);
             ImGui::PushStyleColor(ImGuiCol_ChildBg,              leftPanelBg);
             ImGui::PushStyleColor(ImGuiCol_Text,                 leftPanelText);
+            ImGui::PushStyleColor(ImGuiCol_TextDisabled, state.settings.theme == AppTheme::LapisBlue
+                ? tcs.filterBrowserText : ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
             ImGui::PushStyleColor(ImGuiCol_Border,               leftPanelOutline);
             ImGui::PushStyleColor(ImGuiCol_PopupBg,              leftPanelPopupBg);
             ImGui::PushStyleColor(ImGuiCol_FrameBg,              leftPanelInput);
@@ -40476,7 +40483,7 @@ void RenderUI(AppState& state) {
                 ImVec2(wp.x, wp.y), ImVec2(wp.x + 2.0f, wp.y + ws.y),
                 "filterBrowserOutline", L(ThemeCol_filterBrowserOutline));
         }
-        ImGui::PopStyleColor(20);  // filterBrowser* + FrameBg* + PopupBg + transient scrollbar track
+        ImGui::PopStyleColor(21);  // filterBrowser* + readable muted text + FrameBg* + PopupBg + transient scrollbar track
         ImGui::PopStyleVar(4); // FrameBorderSize + FramePadding + ItemSpacing + FrameRounding.
         ImGui::EndChild();
 

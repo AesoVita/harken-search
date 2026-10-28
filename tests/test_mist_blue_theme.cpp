@@ -17,12 +17,16 @@ int main() {
     }
     check(s.waveformColor.x>.98f && s.waveformColor.y>.98f && s.waveformColor.z>.98f,"white waveform line");
     check(Ratio(s.waveformColor,s.waveformBG)>=4.5,"white waveform contrast");
+    check(Ratio(s.chromeBorder,s.metadataPanelBG)>=3.0,"info boundary against panel");
+    check(Ratio(s.chromeBorder,s.resultsBG)>=3.0,"info boundary against workspace");
     check(Ratio(s.filterBrowserText,s.filterBrowserBG)>=4.5,"filter text");
     check(Ratio(s.filterBrowserHeading,s.sidebarHeaderBG)>=4.5,"filter heading");
     check(Ratio(s.metadataPanelLabel,s.metadataPanelBG)>=4.5,"metadata labels");
     check(Ratio(s.resultsSecondaryText,s.resultsBG)>=4.5,"secondary result labels");
     ImVec4 colors[ImGuiCol_COUNT]{};
     MistBlueChrome::Apply(colors,s);
+    check(Ratio(colors[ImGuiCol_TextDisabled],s.frameBgBase)>=4.5,"muted label on input surface");
+    check(Ratio(s.filterBrowserOutline,s.filterBrowserBG)>=3.0,"white filter boundary");
     for(auto role:{ImGuiCol_ButtonActive,ImGuiCol_TabActive,ImGuiCol_TabHovered,ImGuiCol_HeaderActive})
         check(Ratio(s.interfaceText,colors[role])>=4.5,"active button and tab text");
     auto tabInk=MistBlueChrome::ResultsTabText(s);

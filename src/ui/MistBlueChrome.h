@@ -5,6 +5,9 @@ namespace MistBlueChrome {
 // Applied only to the built-in LapisBlue preset. Keep the light icon accent
 // separate from the navy surfaces carrying light text.
 inline void Apply(ImVec4* colors,const ThemeColorScheme& s) {
+    // Muted labels are still information, not disabled controls. Actual disabled
+    // widgets retain ImGui DisabledAlpha on top of this readable base.
+    colors[ImGuiCol_TextDisabled]=s.resultsSecondaryText;
     colors[ImGuiCol_ButtonActive]=s.historyCapsuleActiveBG;
     colors[ImGuiCol_TabActive]=s.resultsTabActive;
     colors[ImGuiCol_TabHovered]=s.resultsTabHover;

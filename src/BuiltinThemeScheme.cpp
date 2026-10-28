@@ -382,7 +382,7 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.menuBarBG              = H(0xff2a3e55);
         s.menuText               = H(0xfff1f5fa);
         s.frameBgBase            = H(0xff3b526c);
-        s.chromeBorder           = H(0xff617a94);
+        s.chromeBorder           = H(0xff91a9c1);
         s.popupBG                = H(0xff30465f);
         s.menuPopupBG            = H(0xff30465f);
         s.dialogBG               = H(0xff30465f);
@@ -401,14 +401,14 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.resultsBG              = H(0xff34485f);
         s.resultsHeaderBG        = H(0xff30445b);
         s.resultsText            = H(0xfff1f5fa);
-        s.resultsOutline         = H(0xff617a94);
+        s.resultsOutline         = H(0xff91a9c1);
         s.resultsSelection       = H(0xff456181);
         s.resultsActiveBorder    = H(0xffaccbe8);
         s.resultsScrollbar       = H(0xff829bb5);
         s.resultsTabBG           = H(0xff384d65);
         s.resultsTabHover        = H(0xff456181);
         s.resultsTabActive       = H(0xff456181);
-        s.resultsSecondaryText   = H(0xffc4d2e1);
+        s.resultsSecondaryText   = H(0xffe0e8f1);
         s.resultsPlayedText      = H(0xffe5c69d);
         s.resultsGradientStart   = H(0xff34485f);
         s.resultsGradientEnd     = H(0xff384d65);
@@ -418,13 +418,13 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.playlistGradientShadow = H(0xff2a4058);
         s.metadataPanelBG        = H(0xff354b64);
         s.metadataPanelText      = H(0xfff1f5fa);
-        s.metadataPanelLabel     = H(0xffc4d2e1);
+        s.metadataPanelLabel     = H(0xffe0e8f1);
         s.metadataPanelScrollbar = H(0xff829bb5);
         s.coverWallBG            = H(0xff354b64);
         s.waveformBG             = H(0xff2d435a);
-        s.waveformPanelBorder    = H(0xff617a94);
+        s.waveformPanelBorder    = H(0xff91a9c1);
         s.waveformSplitterBG     = H(0xff2a4058);
-        s.waveformSplitterLine   = H(0xff617a94);
+        s.waveformSplitterLine   = H(0xff91a9c1);
         s.waveformFooterBG       = H(0xff2e445c);
         s.waveformColor          = H(0xffffffff);
         s.waveformSecondaryColor = H(0xffb6cade);
@@ -440,7 +440,7 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.filterBrowserBG        = H(0xffffffff);
         s.filterBrowserText      = H(0xff203b55);
         s.filterBrowserHeading   = H(0xff203b55);
-        s.filterBrowserOutline   = H(0xffcbd9e5);
+        s.filterBrowserOutline   = H(0xff8195a9);
         s.filterBrowserSelection = H(0xffdceaf5);
         s.filterBrowserScrollbar = H(0xff6587a5);
         s.filterBrowserSectionBG = H(0xffedf3f8);
@@ -458,13 +458,13 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.diagnosticOverlayBG    = H(0xff32485f);
         s.diagnosticOverlayText  = H(0xfff1f5fa);
         s.diagnosticOverlayAccent= H(0xffaccbe8);
-        s.diagnosticOverlayMutedText = H(0xffc4d2e1);
+        s.diagnosticOverlayMutedText = H(0xffe0e8f1);
         s.tabBG                  = H(0xff30445b);
         s.volumeColor            = H(0xff7197bb);
         s.volumeClipColor        = H(0xffe68b88);
         s.filterBrowserTagText   = H(0xff203b55);
         s.presetDialCardActiveText   = H(0xfff1f5fa);
-        s.presetDialCardInactiveText = H(0xffc4d2e1);
+        s.presetDialCardInactiveText = H(0xffe0e8f1);
         s.presetDialAccent           = H(0xffaccbe8);
 
         s.wwiseConnectOk         = H(0xff0e7c50); // 深翠绿 — connected / Imported
@@ -477,7 +477,7 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.wwiseParentBadge       = H(0xff3f5c8a); // 深琉璃 — parent 层标识
 
         s.sidebarRailBG          = H(0xfff4f7fa);
-        s.sidebarRailDivider     = H(0xffd8e2eb);
+        s.sidebarRailDivider     = H(0xff8195a9);
         s.sidebarIconInactive    = H(0xff536c82);
         s.sidebarIconHover       = H(0xff294c6b);
         s.sidebarIconActive      = H(0xff386e9d);
@@ -485,8 +485,8 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.sidebarHeaderBG        = H(0xffffffff);
         s.sidebarStatusBarBG     = H(0xffffffff);
         s.sidebarSubpaneBG       = H(0xffedf3f8);
-        s.sidebarSubpaneDivider  = H(0xffcbd9e5);
-        s.sidebarSubHeaderLine   = H(0xffd8e2eb);
+        s.sidebarSubpaneDivider  = H(0xff8195a9);
+        s.sidebarSubHeaderLine   = H(0xff8195a9);
         s.waveformSelectionDim       = H(0x80081026);  // rgba(8,16,38,0.50)
         s.waveformSelectionHearthTop = H(0x478c64f0);  // 紫 rgba(140,100,240, 0.28)
         s.waveformSelectionHearthBot = H(0x47dc64c8);  // 玫 rgba(220,100,200, 0.28)
