@@ -1,5 +1,7 @@
 """A card clone can be removed only after its work is on the QA branch."""
 from pathlib import Path
+import contextlib
+import io
 import os
 import subprocess
 import tempfile
@@ -47,6 +49,13 @@ class CardDirectoryCleanupTests(unittest.TestCase):
                 if repo.samefile(self.card) and args[:3] == ("fetch", "--no-tags", "origin"):
                     return actual_git(repo, "fetch", "--no-tags", str(self.origin), *args[3:])
                 raise AssertionError("unexpected fetch outside the isolated bare repository")
+            if args[:3] == ("ls-remote", "--heads", "origin") and repo.samefile(self.card):
+                return actual_git(repo, "ls-remote", "--heads", str(self.origin), *args[3:])
+            if args and args[0] == "push" and "origin" in args and repo.samefile(self.card):
+                rewritten = tuple(str(self.origin) if part == "origin" else part for part in args)
+                return actual_git(repo, *rewritten)
+            if args and args[0] in {"ls-remote", "push"}:
+                raise AssertionError("unexpected network git outside the isolated bare repository")
             return actual_git(repo, *args)
 
         self.local_fetch = local_fetch
@@ -59,7 +68,8 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         return [
             "--workspace-root", str(self.root), "--card-name", self.card.name,
             "--card-prefix", "card-", "--main-repository", str(self.main_repo),
-            "--repository", REPOSITORY, "--integration-ref", REF, *mode,
+            "--repository", REPOSITORY, "--integration-ref", REF,
+            "--feature-branch", "feature/one-menu", *mode,
         ]
 
     def refused(self, *mode):
@@ -349,6 +359,82 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         with self.assertRaises(cleanup.CleanupRefused):
             cleanup.main(self.args("--dry-run") + ["--repository", "owner/repo;echo danger"])
 
+
+    def ref_exists(self, repo, ref):
+        return subprocess.run(
+            ["git", "-C", str(repo), "rev-parse", "--verify", "--quiet", ref],
+            capture_output=True,
+        ).returncode == 0
+
+    def publish_merged_feature_branch(self):
+        branch = "feature/one-menu"
+        git(self.card, "switch", "-c", branch)
+        (self.card / "tracked.txt").write_text("merged feature\n", encoding="utf-8")
+        git(self.card, "commit", "-am", "merged feature")
+        git(self.card, "push", str(self.origin), "HEAD:" + branch)
+        git(self.card, "push", str(self.origin), "HEAD:" + REF)
+        git(self.main_repo, "fetch", str(self.origin), "+" + branch + ":refs/heads/" + branch)
+        return branch
+
+    def test_dry_run_keeps_merged_feature_branch_until_execute(self):
+        self.publish_merged_feature_branch()
+        head = git(self.card, "rev-parse", "HEAD")
+        with contextlib.redirect_stdout(io.StringIO()) as output:
+            self.assertEqual(cleanup.main(self.args("--dry-run")), 0)
+        text = output.getvalue()
+        self.assertIn("feature/one-menu", text)
+        self.assertIn("将删除", text)
+        self.assertNotIn("已删除", text)
+        self.assertTrue(self.card.exists())
+        self.assertTrue(self.ref_exists(self.main_repo, "refs/heads/feature/one-menu"))
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/feature/one-menu"))
+        self.refused("--execute", "--expected-head", "0" * 40)
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/feature/one-menu"))
+        self.assertEqual(cleanup.main(self.args("--execute", "--expected-head", head)), 0)
+        self.assertFalse(self.card.exists())
+        self.assertFalse(self.ref_exists(self.main_repo, "refs/heads/feature/one-menu"))
+        self.assertFalse(self.ref_exists(self.origin, "refs/heads/feature/one-menu"))
+        self.assertTrue(self.main_repo.exists())
+        self.assertTrue(self.ref_exists(self.main_repo, "refs/heads/" + REF))
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/" + REF))
+
+    def test_unmerged_feature_branch_is_preserved(self):
+        branch = "feature/one-menu"
+        git(self.card, "switch", "-c", branch)
+        (self.card / "tracked.txt").write_text("not merged feature\n", encoding="utf-8")
+        git(self.card, "commit", "-am", "not merged feature")
+        git(self.card, "push", str(self.origin), "HEAD:" + branch)
+        git(self.main_repo, "fetch", str(self.origin), "+" + branch + ":refs/heads/" + branch)
+        self.refused("--dry-run")
+        self.assertTrue(self.card.exists())
+        self.assertTrue(self.ref_exists(self.main_repo, "refs/heads/" + branch))
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/" + branch))
+
+    def test_unique_commit_on_main_repository_branch_is_preserved(self):
+        self.publish_merged_feature_branch()
+        git(self.main_repo, "config", "user.name", "CI")
+        git(self.main_repo, "config", "user.email", "ci@example.invalid")
+        git(self.main_repo, "switch", "feature/one-menu")
+        (self.main_repo / "tracked.txt").write_text("only in main\n", encoding="utf-8")
+        git(self.main_repo, "commit", "-am", "only in main")
+        unique = git(self.main_repo, "rev-parse", "HEAD")
+        git(self.main_repo, "switch", REF)
+        self.refused("--dry-run")
+        self.assertEqual(git(self.main_repo, "rev-parse", "refs/heads/feature/one-menu"), unique)
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/feature/one-menu"))
+
+    def test_checked_out_feature_branch_in_main_repository_is_preserved(self):
+        self.publish_merged_feature_branch()
+        git(self.main_repo, "switch", "feature/one-menu")
+        self.refused("--dry-run")
+        self.assertEqual(git(self.main_repo, "branch", "--show-current"), "feature/one-menu")
+        self.assertTrue(self.ref_exists(self.origin, "refs/heads/feature/one-menu"))
+
+    def test_protected_or_unrelated_branch_names_are_refused(self):
+        for branch in (REF, "main", "feature/other-card"):
+            with self.assertRaises(cleanup.CleanupRefused):
+                cleanup.main(self.args("--dry-run", "--feature-branch", branch))
+            self.assertTrue((self.card / ".git").exists())
 
 if __name__ == "__main__":
     unittest.main()
