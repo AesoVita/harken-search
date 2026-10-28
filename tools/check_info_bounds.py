@@ -20,10 +20,14 @@ def violations(report):
             'footer stays inside': content['scroll_max_y'] == 0,
             'no outer scroll': outer['scroll_max_y'] == 0,
         }
-        for key in ('info.metadataSummary', 'info.artwork', 'info.transferHistory',
-                    'info.playHistory', 'info.pageVisibility'):
+        expected_pages = ('info.metadataSummary', 'info.artwork', 'info.transferHistory', 'info.playHistory')
+        expected_keys = [key for page, key in enumerate(expected_pages)
+                         if case['state']['visible_mask'] & (1 << page)]
+        expected_keys.append('info.pageVisibility')
+        for key in expected_keys:
             zone = case['state']['zones'].get(key)
-            if zone is not None:
+            checks[key + ' present'] = zone is not None
+            if zone:
                 checks[key + ' vertical alignment'] = zone['y'] == outer['y'] + 2
         failures.extend(f"{case['name']}: {key}" for key, passed in checks.items() if not passed)
     return failures
