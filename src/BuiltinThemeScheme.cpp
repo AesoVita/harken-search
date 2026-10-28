@@ -377,17 +377,17 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         break;
 
     case AppTheme::LapisBlue:
-        // Familiar navy, gently lifted: white filters and white waveform ink.
+        // Level-one refinement: preserve the navy canvas, gently separate nearby surfaces.
         s.mainWindowBG           = H(0xff34485f);
-        s.menuBarBG              = H(0xff2a3e55);
-        s.menuText               = H(0xfff1f5fa);
+        s.menuBarBG              = H(0xff283b51);
+        s.menuText               = H(0xfff5f8fc);
         s.frameBgBase            = H(0xff3b526c);
-        s.chromeBorder           = H(0xff91a9c1);
+        s.chromeBorder           = H(0xff99b0c6);
         s.popupBG                = H(0xff30465f);
         s.menuPopupBG            = H(0xff30465f);
         s.dialogBG               = H(0xff30465f);
         s.dialogPanelBG          = H(0xff30465f);
-        s.toolbarBG              = H(0xff2a3e55);
+        s.toolbarBG              = H(0xff283b51);
         s.historyCapsuleBG       = H(0xff3b526c);
         s.historyCapsuleActiveBG = H(0xff456181);
         s.modeCapsuleBG          = H(0xff3b526c);
@@ -395,20 +395,20 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.toolbarAccent          = H(0xffaccbe8);
         s.controlAccent          = H(0xffaccbe8);
         s.transportBarBG         = H(0xff2e445c);
-        s.timecodeText           = H(0xfff1f5fa);
+        s.timecodeText           = H(0xfff5f8fc);
         s.timecodeTextHover      = H(0xffaccbe8);
-        s.interfaceText          = H(0xfff1f5fa);
+        s.interfaceText          = H(0xfff5f8fc);
         s.resultsBG              = H(0xff34485f);
         s.resultsHeaderBG        = H(0xff30445b);
-        s.resultsText            = H(0xfff1f5fa);
-        s.resultsOutline         = H(0xff91a9c1);
+        s.resultsText            = H(0xfff5f8fc);
+        s.resultsOutline         = H(0xff99b0c6);
         s.resultsSelection       = H(0xff456181);
         s.resultsActiveBorder    = H(0xffaccbe8);
         s.resultsScrollbar       = H(0xff829bb5);
         s.resultsTabBG           = H(0xff384d65);
         s.resultsTabHover        = H(0xff456181);
         s.resultsTabActive       = H(0xff456181);
-        s.resultsSecondaryText   = H(0xffe0e8f1);
+        s.resultsSecondaryText   = H(0xffe5ecf4);
         s.resultsPlayedText      = H(0xffe5c69d);
         s.resultsGradientStart   = H(0xff34485f);
         s.resultsGradientEnd     = H(0xff384d65);
@@ -416,15 +416,15 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.playlistGradientEnd    = H(0xff354b64);
         s.playlistGradientHighlight = H(0xff405a76);
         s.playlistGradientShadow = H(0xff2a4058);
-        s.metadataPanelBG        = H(0xff354b64);
-        s.metadataPanelText      = H(0xfff1f5fa);
-        s.metadataPanelLabel     = H(0xffe0e8f1);
+        s.metadataPanelBG        = H(0xff374d67);
+        s.metadataPanelText      = H(0xfff5f8fc);
+        s.metadataPanelLabel     = H(0xffe5ecf4);
         s.metadataPanelScrollbar = H(0xff829bb5);
         s.coverWallBG            = H(0xff354b64);
-        s.waveformBG             = H(0xff2d435a);
-        s.waveformPanelBorder    = H(0xff91a9c1);
+        s.waveformBG             = H(0xff2b4056);
+        s.waveformPanelBorder    = H(0xff99b0c6);
         s.waveformSplitterBG     = H(0xff2a4058);
-        s.waveformSplitterLine   = H(0xff91a9c1);
+        s.waveformSplitterLine   = H(0xff99b0c6);
         s.waveformFooterBG       = H(0xff2e445c);
         s.waveformColor          = H(0xffffffff);
         s.waveformSecondaryColor = H(0xffb6cade);
@@ -436,7 +436,7 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.meterMid               = H(0xffadc68c);
         s.meterWarning           = H(0xffe3bd79);
         s.meterClip              = H(0xffe68b88);
-        s.meterScaleText         = H(0xfff1f5fa);
+        s.meterScaleText         = H(0xfff5f8fc);
         s.filterBrowserBG        = H(0xffffffff);
         s.filterBrowserText      = H(0xff203b55);
         s.filterBrowserHeading   = H(0xff203b55);
@@ -452,19 +452,19 @@ ThemeColorScheme MakeBuiltinScheme(AppTheme t) {
         s.transferButtonBG       = H(0xff7197bb);
         s.searchButtonBG         = H(0xff7197bb);
         s.transferHistoryBG      = H(0xff32485f);
-        s.transferHistoryText    = H(0xfff1f5fa);
+        s.transferHistoryText    = H(0xfff5f8fc);
         s.spottingBG             = H(0xff32485f);
-        s.spottingText           = H(0xfff1f5fa);
+        s.spottingText           = H(0xfff5f8fc);
         s.diagnosticOverlayBG    = H(0xff32485f);
-        s.diagnosticOverlayText  = H(0xfff1f5fa);
+        s.diagnosticOverlayText  = H(0xfff5f8fc);
         s.diagnosticOverlayAccent= H(0xffaccbe8);
-        s.diagnosticOverlayMutedText = H(0xffe0e8f1);
+        s.diagnosticOverlayMutedText = H(0xffe5ecf4);
         s.tabBG                  = H(0xff30445b);
         s.volumeColor            = H(0xff7197bb);
         s.volumeClipColor        = H(0xffe68b88);
         s.filterBrowserTagText   = H(0xff203b55);
-        s.presetDialCardActiveText   = H(0xfff1f5fa);
-        s.presetDialCardInactiveText = H(0xffe0e8f1);
+        s.presetDialCardActiveText   = H(0xfff5f8fc);
+        s.presetDialCardInactiveText = H(0xffe5ecf4);
         s.presetDialAccent           = H(0xffaccbe8);
 
         s.wwiseConnectOk         = H(0xff0e7c50); // 深翠绿 — connected / Imported
