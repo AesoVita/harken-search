@@ -138,11 +138,20 @@ def assert_no_linked_worktrees(root: Path) -> None:
         refuse("目录关联其他 Git worktree；请先单独核验并保留其工作和提交")
 
 
+def assert_no_submodules(root: Path) -> None:
+    if (root / ".git/modules").exists():
+        refuse("目录保留子模块仓库数据；拒绝删除")
+    indexed = git_output(root, "ls-files", "--stage", "-z")
+    if any(entry.startswith("160000 ") for entry in indexed.split("\0")):
+        refuse("目录含 Git 子模块；拒绝删除")
+
+
 def assert_merged_and_clean(root: Path, repository: str, integration_ref: str) -> str:
     if not (root / ".git").is_dir() or Path(git_output(root, "rev-parse", "--show-toplevel")).resolve(strict=True) != root:
         refuse("目标不是独立的卡目录仓库")
     assert_origin(root, repository)
     assert_no_linked_worktrees(root)
+    assert_no_submodules(root)
     assert_no_local_content(root)
     if git_output(root, "stash", "list", "--format=%gd"):
         refuse("目录还有 stash")
@@ -186,6 +195,7 @@ def target_lock(workspace_root: Path, card_name: str):
 def delete_tree(root: Path) -> None:
     assert_no_links(root)
     assert_no_linked_worktrees(root)
+    assert_no_submodules(root)
     assert_no_local_content(root)
     for current, dirnames, filenames in os.walk(root, topdown=False, followlinks=False):
         for name in filenames:
@@ -224,8 +234,8 @@ def main(argv: list[str] | None = None) -> int:
         refuse("卡目录是链接或重解析点")
     if not target.is_dir() or target.resolve(strict=True).parent != workspace_root:
         refuse("目标必须是工作目录内直属的真实卡目录")
-    if target.resolve(strict=True) == main_repo:
-        refuse("拒绝删除主仓库")
+    if main_repo.is_relative_to(target.resolve(strict=True)):
+        refuse("拒绝删除主仓库或包含主仓库的目录")
     if args.execute and (not args.expected_head or not COMMIT_ID.fullmatch(args.expected_head)):
         refuse("执行删除必须给出预检得到的完整 HEAD SHA")
     with target_lock(workspace_root, args.card_name):
