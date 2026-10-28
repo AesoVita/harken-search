@@ -20589,7 +20589,8 @@ static int PushWaveformShellStyle(const ThemeColorScheme& tcs) {
     return 7;
 }
 
-static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const char* overlayText = nullptr) {
+static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg,
+                                   const char* overlayText = nullptr, bool splitTextContrast = false) {
     auto mixColor = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
         return ImVec4(
             a.x + (b.x - a.x) * t,
@@ -20620,6 +20621,17 @@ static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const 
     if (overlayText && overlayText[0]) {
         ImVec2 textSize = ImGui::CalcTextSize(overlayText);
         ImVec2 textPos(pos.x + (size.x - textSize.x) * 0.5f, pos.y + (size.y - textSize.y) * 0.5f);
+        if (splitTextContrast) {
+            const float fillEnd = pos.x + size.x * fraction;
+            const ImVec4 fillInk = TransportContrast::ForSurface(tcs.interfaceText, tcs.controlAccent, 4.5);
+            const ImVec4 trackInk = TransportContrast::ForSurface(tcs.interfaceText, tcs.frameBgBase, 4.5);
+            dl->PushClipRect(pos, ImVec2(fillEnd, pos.y + size.y), true);
+            dl->AddText(textPos, ImGui::GetColorU32(fillInk), overlayText);
+            dl->PopClipRect();
+            dl->PushClipRect(ImVec2(fillEnd, pos.y), ImVec2(pos.x + size.x, pos.y + size.y), true);
+            dl->AddText(textPos, ImGui::GetColorU32(trackInk), overlayText);
+            dl->PopClipRect();
+        } else {
         const ImVec4 textCol = fraction >= 0.55f
             ? withAlpha(mixColor(tcs.mainWindowBG, tcs.interfaceText, 0.24f), 1.0f)
             : withAlpha(tcs.interfaceText, 1.0f);
@@ -20628,6 +20640,7 @@ static void DrawUnifiedProgressBar(float fraction, const ImVec2& sizeArg, const 
             : withAlpha(mixColor(tcs.mainWindowBG, tcs.chromeBorder, 0.60f), 0.74f);
         dl->AddText(ImVec2(textPos.x + 1, textPos.y + 1), ImGui::GetColorU32(shadowCol), overlayText);
         dl->AddText(textPos, ImGui::GetColorU32(textCol), overlayText);
+        }
     }
     ImGui::Dummy(size);
 }
@@ -29079,10 +29092,23 @@ void DrawSimilarityIndexPanel(AppState& state) {
         const float fraction = std::clamp(static_cast<float>(progress) / total, 0.0f, 1.0f);
         char progressLabel[48];
         snprintf(progressLabel, sizeof(progressLabel), "%d / %d", progress, total);
-        DrawUnifiedProgressBar(fraction, ImVec2(-1, 0), progressLabel);
+        DrawUnifiedProgressBar(fraction, ImVec2(-1, 18), progressLabel, true);
         ThemeInspector::RegisterLastItem("similar.index.progress");
+        const bool layeredNavySimilar = state.settings.theme == AppTheme::LapisBlue &&
+            !state.settings.useCustomColors && !ThemeColors::customized();
+        if (layeredNavySimilar) {
+            const auto& colors = ThemeColors::current();
+            ImGui::PushStyleColor(ImGuiCol_Button, colors.toolbarBG);
+            ImGui::PushStyleColor(ImGuiCol_ButtonHovered, colors.modeCapsuleActiveBG);
+            ImGui::PushStyleColor(ImGuiCol_Border, colors.chromeBorder);
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        }
         if (ImGui::Button(L(Cancel), ImVec2(-1, 30))) {
             state.batchFeatureCancelRequested.store(true);
+        }
+        if (layeredNavySimilar) {
+            ImGui::PopStyleVar();
+            ImGui::PopStyleColor(3);
         }
         ThemeInspector::RegisterLastItem("similar.index.cancel");
     } else {

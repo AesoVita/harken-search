@@ -53,8 +53,11 @@ static bool DrawSimilarSoundsActionRow(
     const char* actionLabel = indexing ? L(Similar_Indexing)
         : (searching ? L(Similar_Searching) : L(Similar_Find));
     const ThemeColorScheme& theme = ThemeColors::current();
+    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
     bool searchRequested = false;
 
+    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, theme.dialogBG);
     if (ImGui::BeginChild("##SimilarActionRow", ImVec2(0.0f, 62.0f), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const ImGuiStyle& style = ImGui::GetStyle();
@@ -100,7 +103,11 @@ static bool DrawSimilarSoundsActionRow(
         aura::ui::ButtonOptions options;
         options.variant = aura::ui::ButtonVariant::PrimarySearch;
         options.disabled = searching || indexing || !hasReference;
-        if (aura::ui::Button(actionLabel, options)) {
+        if (searching || indexing) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme.resultsSecondaryText);
+            ImGui::TextUnformatted(actionLabel);
+            ImGui::PopStyleColor();
+        } else if (aura::ui::Button(actionLabel, options)) {
             if (state.similarSoundsSelectedRow >= 0 &&
                 state.similarSoundsSelectedRow < static_cast<int>(snapshot.rows.size())) {
                 const HarkenSearch::SimilarityDisplayRow& selected =
@@ -114,6 +121,7 @@ static bool DrawSimilarSoundsActionRow(
         }
     }
     ImGui::EndChild();
+    if (layeredNavy) ImGui::PopStyleColor();
     return searchRequested;
 }
 
@@ -164,10 +172,14 @@ static void DrawSimilarSoundsResultsTable(
     const HarkenSearch::SimilarityWorkflowSnapshot& snapshot,
     bool windowFocused) {
     const ThemeColorScheme& theme = ThemeColors::current();
-    ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, theme.resultsHeaderBG);
-    ImGui::PushStyleColor(ImGuiCol_TableRowBg, theme.resultsBG);
+    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
+    const ImVec4 tableBody = layeredNavy ? theme.dialogPanelBG : theme.resultsBG;
+    ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, layeredNavy ? theme.toolbarBG : theme.resultsHeaderBG);
+    ImGui::PushStyleColor(ImGuiCol_TableRowBg, tableBody);
     ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt,
-        ImLerp(theme.resultsBG, theme.resultsHeaderBG, 0.32f));
+        ImLerp(tableBody, layeredNavy ? theme.resultsBG : theme.resultsHeaderBG, 0.32f));
+    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, tableBody);
     const ImGuiTableFlags flags = ImGuiTableFlags_BordersOuter |
         ImGuiTableFlags_BordersInnerH | ImGuiTableFlags_RowBg |
         ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
@@ -321,6 +333,7 @@ static void DrawSimilarSoundsResultsTable(
             ToggleSimilarSoundsAudition(state, row);
         }
     }
+    if (layeredNavy) ImGui::PopStyleColor();
     ImGui::PopStyleColor(3);
 }
 
@@ -359,9 +372,23 @@ static void DrawSimilarSoundsBody(AppState& state, bool windowFocused) {
     if (DrawSimilarSoundsActionRow(state, workflow, snapshot)) {
         snapshot = workflow.Snapshot();
     }
-    DrawSimilarityIndexPanel(state);
+    const bool layeredNavy = state.settings.theme == AppTheme::LapisBlue &&
+        !state.settings.useCustomColors && !ThemeColors::customized();
+    if (layeredNavy) {
+        ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().dialogPanelBG);
+        if (ImGui::BeginChild("##SimilarIndexRegion", ImVec2(0.0f, 0.0f),
+                ImGuiChildFlags_AutoResizeY,
+                ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+            DrawSimilarityIndexPanel(state);
+        }
+        ImGui::EndChild();
+        ImGui::PopStyleColor();
+    } else {
+        DrawSimilarityIndexPanel(state);
+    }
     // Starting analysis invalidates rows, even if the task finishes this frame.
     snapshot = workflow.Snapshot();
+    if (layeredNavy) ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().toolbarBG);
     if (ImGui::BeginChild("##SimilarResultsHeading", ImVec2(0.0f, 36.0f), false,
             ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
         const float rowY = ImGui::GetCursorPosY();
@@ -374,6 +401,7 @@ static void DrawSimilarSoundsBody(AppState& state, bool windowFocused) {
         ImGui::PopStyleColor();
     }
     ImGui::EndChild();
+    if (layeredNavy) ImGui::PopStyleColor();
     DrawSimilarSoundsResultsTable(state, snapshot, windowFocused);
 }
 

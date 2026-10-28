@@ -56,6 +56,16 @@ int main() {
         check(Ratio(pass.button,notch.button)>=3.0,"EQ pass/notch modes have distinct surfaces");
         check(Ratio(pass.ink,pass.button)>=4.5 && Ratio(notch.ink,notch.button)>=4.5,"EQ mode labels remain readable");
     }
+    for (auto preset : {AppTheme::Dark, AppTheme::Ocean, AppTheme::LapisBlue,
+                        AppTheme::JadeMist, AppTheme::RoseCedar}) {
+        const auto palette = MakeBuiltinScheme(preset);
+        const auto fillInk = ForSurface(palette.interfaceText, palette.controlAccent, 4.5);
+        const auto trackInk = ForSurface(palette.interfaceText, palette.frameBgBase, 4.5);
+        check(Ratio(Quantize(fillInk), Quantize(palette.controlAccent)) >= 4.5,
+              "Similar Sounds progress label on filled track");
+        check(Ratio(Quantize(trackInk), Quantize(palette.frameBgBase)) >= 4.5,
+              "Similar Sounds progress label on empty track");
+    }
     check(Ratio(tabInk,s.resultsTabActive)>=4.5,"selected result tab text");
     return failures?1:0;
 }
