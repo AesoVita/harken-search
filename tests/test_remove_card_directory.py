@@ -173,6 +173,82 @@ class CardDirectoryCleanupTests(unittest.TestCase):
         self.assertEqual(git(external, "rev-parse", "HEAD"), unique_head)
         self.assertEqual((external / "tracked.txt").read_text(encoding="utf-8"), "external unique work\n")
 
+    def _add_merged_submodule(self):
+        child_origin = self.root / "child-origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(child_origin)], check=True, capture_output=True)
+        seed = self.root / "child-seed"
+        subprocess.run(["git", "clone", str(child_origin), str(seed)], check=True, capture_output=True)
+        git(seed, "config", "user.name", "CI")
+        git(seed, "config", "user.email", "ci@example.invalid")
+        (seed / ".gitignore").write_text("*.db\n", encoding="utf-8")
+        (seed / "child.txt").write_text("saved\n", encoding="utf-8")
+        git(seed, "add", ".gitignore", "child.txt")
+        git(seed, "commit", "-m", "child baseline")
+        git(seed, "push", "origin", "HEAD:main")
+        git(self.card, "-c", "protocol.file.allow=always", "submodule", "add", str(child_origin), "modules/child")
+        git(self.card, "commit", "-am", "add child")
+        git(self.card, "push", str(self.origin), "HEAD:" + REF)
+        return self.card / "modules/child"
+
+    def test_clean_parent_with_ignored_submodule_database_is_preserved(self):
+        child = self._add_merged_submodule()
+        database = child / "private.db"
+        database.write_text("unpublished private data", encoding="utf-8")
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"), "")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertEqual(database.read_text(encoding="utf-8"), "unpublished private data")
+
+    def test_deinitialized_submodule_repository_with_unique_ref_is_preserved(self):
+        child = self._add_merged_submodule()
+        git(child, "config", "user.name", "CI")
+        git(child, "config", "user.email", "ci@example.invalid")
+        git(child, "switch", "-c", "unpublished")
+        (child / "child.txt").write_text("unpublished commit\n", encoding="utf-8")
+        git(child, "commit", "-am", "keep child commit")
+        child_head = git(child, "rev-parse", "HEAD")
+        git(self.card, "submodule", "deinit", "-f", "--", "modules/child")
+        git(self.card, "rm", "--cached", "modules/child")
+        git(self.card, "commit", "-m", "remove child gitlink")
+        git(self.card, "push", str(self.origin), "HEAD:" + REF)
+        stored = self.card / ".git/modules/modules/child"
+        self.assertEqual(git(stored, "rev-parse", "refs/heads/unpublished"), child_head)
+        self.assertNotIn("160000 ", git(self.card, "ls-files", "--stage"))
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"), "")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertEqual(git(stored, "rev-parse", "refs/heads/unpublished"), child_head)
+
+    def test_submodule_storage_added_after_commit_check_blocks_delete(self):
+        head = git(self.card, "rev-parse", "HEAD")
+        original_assert_no_links = cleanup.assert_no_links
+        checks = 0
+        stored = self.card / ".git/modules/orphan"
+
+        def add_stored_repository_at_second_link_check(root):
+            nonlocal checks
+            checks += 1
+            if checks == 2:
+                subprocess.run(["git", "init", "--bare", str(stored)], check=True, capture_output=True)
+            return original_assert_no_links(root)
+
+        with patch.object(cleanup, "assert_no_links", side_effect=add_stored_repository_at_second_link_check):
+            self.refused("--execute", "--expected-head", head)
+        self.assertTrue((stored / "HEAD").is_file())
+
+    def test_nested_protected_main_repository_is_preserved_without_submodule(self):
+        protected = self.card / ".git/protected-main.git"
+        subprocess.run(["git", "init", "--bare", str(protected)], check=True, capture_output=True)
+        self.assertTrue((protected / "HEAD").is_file())
+        self.assertEqual(git(self.card, "ls-files", "--stage").count("160000 "), 0)
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"), "")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--main-repository", str(protected), "--dry-run")
+        self.refused("--main-repository", str(protected), "--execute", "--expected-head", head)
+        self.assertTrue((protected / "HEAD").is_file())
+
     def test_hidden_branch_with_unique_commit_is_preserved(self):
         git(self.card, "switch", "-c", "backup/unfinished")
         (self.card / "tracked.txt").write_text("new\n", encoding="utf-8")
