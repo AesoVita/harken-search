@@ -133,6 +133,36 @@ class CardDirectoryCleanupTests(unittest.TestCase):
             self.refused("--execute", "--expected-head", head)
         self.assertTrue((self.card / "late.local").exists())
 
+    def test_assume_unchanged_modified_file_is_preserved(self):
+        self._assert_hidden_index_change_preserved("--assume-unchanged")
+
+    def test_skip_worktree_modified_file_is_preserved(self):
+        self._assert_hidden_index_change_preserved("--skip-worktree")
+
+    def _assert_hidden_index_change_preserved(self, flag):
+        tracked = self.card / "tracked.txt"
+        git(self.card, "update-index", flag, "tracked.txt")
+        tracked.write_text("hidden work\n", encoding="utf-8")
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"), "")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertEqual(tracked.read_text(encoding="utf-8"), "hidden work\n")
+
+    def test_external_detached_worktree_with_unique_commit_is_preserved(self):
+        external = self.root / "linked-external"
+        git(self.card, "worktree", "add", "--detach", str(external), "HEAD")
+        (external / "tracked.txt").write_text("external unique work\n", encoding="utf-8")
+        git(external, "commit", "-am", "external unique commit")
+        unique_head = git(external, "rev-parse", "HEAD")
+        self.assertNotEqual(unique_head, git(self.card, "rev-parse", "HEAD"))
+        self.assertEqual(git(self.card, "status", "--porcelain=v1", "--untracked-files=all", "--ignored=matching"), "")
+        head = git(self.card, "rev-parse", "HEAD")
+        self.refused("--dry-run")
+        self.refused("--execute", "--expected-head", head)
+        self.assertEqual(git(external, "rev-parse", "HEAD"), unique_head)
+        self.assertEqual((external / "tracked.txt").read_text(encoding="utf-8"), "external unique work\n")
+
     def test_hidden_branch_with_unique_commit_is_preserved(self):
         git(self.card, "switch", "-c", "backup/unfinished")
         (self.card / "tracked.txt").write_text("new\n", encoding="utf-8")

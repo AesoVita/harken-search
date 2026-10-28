@@ -5,6 +5,7 @@
 #endif
 #include <windows.h>
 #include "DockNativeCaptionBridge.h"
+#include "ImGuiMouseCaptureLoss.h"
 
 namespace aura::ui::dock {
 
@@ -21,6 +22,17 @@ inline LRESULT DispatchDockCaptionWindowMessage(
     auto readCursor = [&](POINT* point) {
         return runtime.getCursorPos ? runtime.getCursorPos(point) : ::GetCursorPos(point) != 0;
     };
+    // A foreign window can take capture without delivering button-up. Preserve
+    // transfers within this ImGui context, including the backend's temporary
+    // null capture while retiring a viewport (ReleaseCapture -> SetCapture(host)).
+    if (msg == WM_CAPTURECHANGED && lParam != 0 && ImGui::GetCurrentContext()) {
+        const HWND nextCapture = reinterpret_cast<HWND>(lParam);
+        bool internalTransfer = nextCapture == runtime.hostHwnd;
+        for (const auto* viewport : ImGui::GetPlatformIO().Viewports) {
+            if (viewport->PlatformHandle == nextCapture) internalTransfer = true;
+        }
+        if (!internalTransfer) ReleaseImGuiLeftButtonOnCaptureLoss();
+    }
     if (msg == WM_NCDESTROY) {
         const LRESULT result = original(hwnd, msg, wParam, lParam);
         ForgetExtraViewportProc(hwnd);
@@ -58,8 +70,13 @@ inline LRESULT DispatchDockCaptionWindowMessage(
             return original(hwnd, msg, wParam, lParam);
         return 0;
     }
-    if (hwnd == NativeCaptionHwnd() ||
-        ModuleIdForNativeCaptionHwnd(hwnd) == NativeCaptionModuleId()) {
+    // Only an active, owned caption drag may intercept client input. Ordinary
+    // detached dialogs have no module ID, and completed drags may retain their
+    // HWND/module until the next frame. Both must forward button-up to ImGui.
+    if (NativeCaptionDragging() &&
+        (hwnd == NativeCaptionHwnd() ||
+         (!NativeCaptionModuleId().empty() &&
+          ModuleIdForNativeCaptionHwnd(hwnd) == NativeCaptionModuleId()))) {
         NativeCaptionDragEvent keep;
         keep.kind = NativeCaptionEventKind::NonClientMouseMove;
         keep.hwnd = hwnd;
