@@ -9,6 +9,7 @@
 #include "SpectrogramMath.h"
 #include "Theme.h"
 #include "ThemeInspector.h"
+#include "ui/TransportVisualAudit.h"
 #include "AnnotationBridge.h"
 #include "BackgroundIoPolicy.h"
 #include "BetaFeatureFlags.h"
@@ -4350,6 +4351,44 @@ static void PollQaCommandFile(AppState& state) {
         }
     } else if (cmd == aura::diagnostics::FrameBudgetDiagnostics::resultCommand()) {
         result = aura::diagnostics::FrameBudgetDiagnostics::shared().resultJson();
+    } else if (cmd == "transport_audit" || cmd == "transport_audit_setup") {
+        if (!MagicEqQaIsolationReady()) {
+            result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
+        } else if (cmd == "transport_audit") {
+            TransportVisualAudit::Request();
+            result = TransportVisualAudit::Json();
+        } else {
+            const std::string scenario = getStr(raw, "scenario");
+            if (scenario != "pass" && scenario != "bypass" && scenario != "notch" &&
+                scenario != "processing" && scenario != "mono" && scenario != "spectrum" &&
+                scenario != "overdrive" && scenario != "selection" && scenario != "wide") {
+                result = "{\"ok\":false,\"error\":\"invalid_transport_audit_scenario\"}";
+            } else {
+                state.audioEngine.stop();
+                state.settings.productMode = ProductMode::SFX;
+                state.audioEngine.setVolume(scenario == "overdrive" ? 1.10f : (scenario == "processing" ? .85f : .26f));
+                state.audioEngine.setMono(scenario == "mono");
+                state.audioEngine.setPan(scenario == "processing" ? .5f : 0);
+                state.audioEngine.setCenterSense(scenario == "processing" ? .6f : 0);
+                state.audioEngine.setBassMonoFreq(scenario == "processing" ? 80.f : 0.f);
+                state.audioEngine.setReverse(scenario == "processing");
+                state.audioEngine.setInPoint(scenario == "selection" ? .2f : 0.f);
+                state.audioEngine.setOutPoint(scenario == "selection" ? .8f : 1.f);
+                state.showSpectrogram = scenario == "spectrum";
+                state.spectrogramSplit = false;
+                state.spectrogramBlend = .5f;
+                MagicEQSettings eq = state.audioEngine.getMagicEQ();
+                eq.enabled = scenario != "bypass";
+                eq.mode = scenario == "notch" ? MagicEQMode::Notch : MagicEQMode::Pass;
+                eq.widgetWidth = scenario == "wide" ? 800 : 340;
+                eq.centerFreq = 1000; eq.halfWidthPercent = 30;
+                state.audioEngine.setMagicEQ(eq);
+                s_magicEqQaPointer.active = true; s_magicEqQaPointer.pending = true;
+                s_magicEqQaPointer.held = false; s_magicEqQaPointer.x = -10000; s_magicEqQaPointer.y = -10000;
+                TransportVisualAudit::Request();
+                result = "{\"ok\":true,\"cmd\":\"transport_audit_setup\"}";
+            }
+        }
     } else if (cmd == "magic_eq_identity" || cmd == "magic_eq_state" ||
                cmd == "magic_eq_set_state" || cmd == "magic_eq_pointer") {
         // This channel exists only in a compile-time pinned QA build. An env

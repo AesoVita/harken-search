@@ -6067,6 +6067,14 @@ aura_set_test_labels(TestDatabaseNavNonblockingContract core)
 # F-033 Phase 0 QA: DB schema migration + TagVocabularyMapper unit tests
 
 
+add_executable(TestTransportContrast EXCLUDE_FROM_ALL tests/test_transport_contrast.cpp)
+target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
+aura_set_test_labels(TestTransportContrast ui)
+add_test(NAME TestTransportThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_transport_theme_audit.py)
+aura_set_test_labels(TestTransportThemeAudit ui)
+
 add_executable(TestThemeColors EXCLUDE_FROM_ALL
     tests/test_theme_colors.cpp
     src/Theme.cpp
