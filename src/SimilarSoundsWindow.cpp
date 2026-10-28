@@ -107,17 +107,21 @@ static bool DrawSimilarSoundsActionRow(
             ImGui::PushStyleColor(ImGuiCol_Text, theme.resultsSecondaryText);
             ImGui::TextUnformatted(actionLabel);
             ImGui::PopStyleColor();
-        } else if (aura::ui::Button(actionLabel, options)) {
-            if (state.similarSoundsSelectedRow >= 0 &&
-                state.similarSoundsSelectedRow < static_cast<int>(snapshot.rows.size())) {
-                const HarkenSearch::SimilarityDisplayRow& selected =
-                    snapshot.rows[state.similarSoundsSelectedRow];
-                state.similarSoundsLocalReference = HarkenSearch::SimilarityReference{
-                    selected.fileId, selected.filePath, selected.fileName};
-                workflow.SetReference(state.similarSoundsLocalReference);
+        } else {
+            if (!hasReference) ImGui::PushStyleVar(ImGuiStyleVar_DisabledAlpha, 0.9f);
+            if (aura::ui::Button(actionLabel, options)) {
+                if (state.similarSoundsSelectedRow >= 0 &&
+                    state.similarSoundsSelectedRow < static_cast<int>(snapshot.rows.size())) {
+                    const HarkenSearch::SimilarityDisplayRow& selected =
+                        snapshot.rows[state.similarSoundsSelectedRow];
+                    state.similarSoundsLocalReference = HarkenSearch::SimilarityReference{
+                        selected.fileId, selected.filePath, selected.fileName};
+                    workflow.SetReference(state.similarSoundsLocalReference);
+                }
+                state.similarSoundsSelectedRow = -1;
+                searchRequested = workflow.RequestSearch(state.similarSoundsPreset, 50);
             }
-            state.similarSoundsSelectedRow = -1;
-            searchRequested = workflow.RequestSearch(state.similarSoundsPreset, 50);
+            if (!hasReference) ImGui::PopStyleVar();
         }
     }
     ImGui::EndChild();
