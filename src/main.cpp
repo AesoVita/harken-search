@@ -967,7 +967,7 @@ using aura::cover_wall::SanitizeCoverWallItemsForCache;
 using aura::cover_wall::BuildCoverWallItemsFromCachedKeys;
 using aura::cover_wall::BuildCoverWallItemsFromSearchResultsFallback;
 using aura::cover_wall::ConvertCoverWallEntryToItem;
-using aura::cover_wall::BuildCoverWallVisualDedupeToken;
+using aura::cover_wall::AppendUniqueCoverWallPageItems;
 using aura::cover_wall::BuildCoverWallPageLoadResult;
 using aura::cover_wall::BuildCoverWallLoadResultFromEntries;
 using aura::cover_wall::LoadGlobalCoverWallPage;
@@ -18716,20 +18716,7 @@ void RenderFileInfoPanelTabContents(
                     } else if (!staleEntriesView) {
                     SanitizeCoverWallItemsForCache(page.items);
                     if (wasLoadingNextPage) {
-                        std::unordered_set<std::string> existingTokens;
-                        existingTokens.reserve(cw.items.size() + page.items.size());
-                        for (const auto& it : cw.items) {
-                            existingTokens.insert(BuildCoverWallVisualDedupeToken(it));
-                        }
-                        for (auto& item : page.items) {
-                            const std::string dedupeToken =
-                                BuildCoverWallVisualDedupeToken(item);
-                            if (!item.key.empty() &&
-                                !dedupeToken.empty() &&
-                                existingTokens.insert(dedupeToken).second) {
-                                cw.items.push_back(std::move(item));
-                            }
-                        }
+                        AppendUniqueCoverWallPageItems(cw.items, page.items);
                     } else {
                         cw.items = std::move(page.items);
                     }

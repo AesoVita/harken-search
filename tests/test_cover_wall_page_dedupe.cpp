@@ -58,19 +58,35 @@ int main() {
                               first.items[0].folderCoverSrcPathUtf8 == "C:/covers/shared.jpg";
 
     nextPage.entries = {{"?|C:/repeat/c", "C:/repeat/c", "", false}};
-    const auto second = aura::cover_wall::LoadGlobalCoverWallPage("isolated.db", "fl2:123", 512);
+    auto second = aura::cover_wall::LoadGlobalCoverWallPage("isolated.db", "fl2:123", 512);
     const bool sameAcrossPages = second.items.size() == 1 &&
         aura::cover_wall::BuildCoverWallVisualDedupeToken(first.items[0]) ==
         aura::cover_wall::BuildCoverWallVisualDedupeToken(second.items[0]);
 
-    const auto distinct = aura::cover_wall::BuildCoverWallPageLoadResult({{
+    nextPage.entries = {
+        {"F|H|legacy", "C:/repeat/legacy", "C:/covers/shared.jpg", false},
+        {"?|C:/repeat/new", "C:/repeat/new", "", false},
+    };
+    const auto mixed = aura::cover_wall::LoadGlobalCoverWallPage("isolated.db", {}, 512);
+    const bool mixedLegacyKeysCollapse = mixed.items.size() == 1;
+
+    auto distinct = aura::cover_wall::BuildCoverWallPageLoadResult({{
         {"?|C:/similar/a", "C:/similar/a", "C:/covers/similar-a.jpg", false},
         {"?|C:/similar/b", "C:/similar/b", "C:/covers/similar-b.jpg", false},
     }});
     const bool distinctFilesRemain = distinct.items.size() == 2;
+    auto appended = first.items;
+    aura::cover_wall::AppendUniqueCoverWallPageItems(appended, second.items);
+    const bool repeatedPageSkipped = appended.size() == 2;
+    aura::cover_wall::AppendUniqueCoverWallPageItems(appended, distinct.items);
+    const bool distinctPageAppended = appended.size() == 4;
 
     std::cout << "same source once=" << onePerSource
               << " across pages=" << sameAcrossPages
+              << " mixed legacy keys=" << mixedLegacyKeysCollapse
+              << " repeated page skipped=" << repeatedPageSkipped
+              << " distinct page appended=" << distinctPageAppended
               << " distinct files=" << distinctFilesRemain << '\n';
-    return onePerSource && sameAcrossPages && distinctFilesRemain ? 0 : 1;
+    return onePerSource && sameAcrossPages && mixedLegacyKeysCollapse &&
+           repeatedPageSkipped && distinctPageAppended && distinctFilesRemain ? 0 : 1;
 }

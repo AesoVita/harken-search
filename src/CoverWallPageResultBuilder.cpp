@@ -74,10 +74,26 @@ std::string BuildCoverWallVisualDedupeToken(const CoverModule::CoverItem& item) 
         return item.folderCoverSrcPathUtf8;
     }
     if (item.kind == CoverModule::CoverKind::FolderCover &&
-        item.key.rfind("?|", 0) == 0 && !item.folderCoverSrcPathUtf8.empty()) {
+        !item.folderCoverSrcPathUtf8.empty() &&
+        item.folderCoverSrcPathUtf8.rfind("PHASH|", 0) != 0) {
         return "F|SRC|" + HarkenSearch::CanonicalFolderPath(item.folderCoverSrcPathUtf8);
     }
     return item.key;
+}
+
+void AppendUniqueCoverWallPageItems(std::vector<CoverModule::CoverItem>& existing,
+                                    std::vector<CoverModule::CoverItem>& nextPage) {
+    std::unordered_set<std::string> seenTokens;
+    seenTokens.reserve(existing.size() + nextPage.size());
+    for (const auto& item : existing) {
+        seenTokens.insert(BuildCoverWallVisualDedupeToken(item));
+    }
+    for (auto& item : nextPage) {
+        const std::string token = BuildCoverWallVisualDedupeToken(item);
+        if (!item.key.empty() && !token.empty() && seenTokens.insert(token).second) {
+            existing.push_back(std::move(item));
+        }
+    }
 }
 
 CoverWallPageLoadResult BuildCoverWallPageLoadResult(const Database::CoverWallPage& page) {

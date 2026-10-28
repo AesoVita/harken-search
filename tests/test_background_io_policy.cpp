@@ -2805,10 +2805,10 @@ void TestGlobalCoverWallCompletenessCeilingAndDiagnosticsContract() {
           "BDD: Cover-wall diagnostics report global next-page trigger and apply events");
     Check(renderBody.find("windowMax=%zu") == std::string::npos,
           "BDD: Global cover-wall diagnostics no longer report a legacy hard window max");
-    Check(mainSource.find("BuildCoverWallVisualDedupeToken(") != std::string::npos &&
-          mainSource.find("existingTokens") != std::string::npos &&
+    Check(mainSource.find("AppendUniqueCoverWallPageItems(cw.items, page.items)") != std::string::npos &&
           pageResultBuilderSource.find("BuildCoverWallVisualDedupeToken(") != std::string::npos &&
-          pageResultBuilderSource.find("seenTokens") != std::string::npos,
+          pageResultBuilderSource.find("seenTokens") != std::string::npos &&
+          pageResultBuilderSource.find("AppendUniqueCoverWallPageItems(") != std::string::npos,
           "BDD: Global cover-wall page building keeps a visual dedupe token set so cross-page repeats can collapse");
     Check(renderBody.find("const bool blockGlobalStartLoadForPreload =") != std::string::npos &&
           renderBody.find("preloadReadyForReuse || preloadStillBuildingFirstPage") != std::string::npos &&
