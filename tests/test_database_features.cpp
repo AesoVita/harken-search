@@ -1274,6 +1274,17 @@ int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
                   << second.entries.size() << "\n";
         if (!secondOk) ++failures;
     }
+    const std::string visualSelection =
+        aura::cover_wall::EncodeExactCoverWallKey("E|visual_late");
+    const auto aliasIds = db.getFileIdsForCoverTileMembership(visualSelection);
+    SearchFilter aliasFilter;
+    aliasFilter.specificCoverKey = visualSelection;
+    const auto aliasCount = db.searchFilesCount(aliasFilter);
+    const bool aliasOk = aliasIds.size() == 1 && aliasCount == 1;
+    std::cout << (aliasOk ? "PASS" : "FAIL")
+              << ": normalized visual key resolves its stored raw membership; ids="
+              << aliasIds.size() << " count=" << aliasCount << "\n";
+    if (!aliasOk) ++failures;
     db.close();
     removeDbFamily(dbPath);
     return failures;

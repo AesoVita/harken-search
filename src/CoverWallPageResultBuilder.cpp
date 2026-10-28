@@ -143,7 +143,10 @@ void AppendUniqueCoverWallPageItems(std::vector<CoverModule::CoverItem>& existin
     if (std::find(removed.begin(), removed.end(), true) != removed.end()) {
         size_t write = 0;
         for (size_t read = 0; read < existing.size(); ++read) {
-            if (!removed[read]) existing[write++] = std::move(existing[read]);
+            if (!removed[read]) {
+                if (write != read) existing[write] = std::move(existing[read]);
+                ++write;
+            }
         }
         existing.resize(write);
     }

@@ -764,6 +764,25 @@ static std::string CoverWallSelectionJsonArray(const std::vector<std::string>& v
     return json;
 }
 
+static void ExpandExactCoverWallRegistryAliases(sqlite3* db,
+                                                ExactCoverWallSelectionMembers& members) {
+    if (!db || members.keys.empty()) return;
+    const char* sql =
+        "SELECT cover_key FROM cover_cache_registry "
+        "WHERE normalized_key IN (SELECT value FROM json_each(?))";
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return;
+    const std::string normalizedKeys = CoverWallSelectionJsonArray(members.keys);
+    sqlite3_bind_text(stmt, 1, normalizedKeys.c_str(), (int)normalizedKeys.size(), SQLITE_TRANSIENT);
+    std::unordered_set<std::string> seen(members.keys.begin(), members.keys.end());
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const char* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const std::string raw = text ? text : "";
+        if (!raw.empty() && seen.insert(raw).second) members.keys.push_back(raw);
+    }
+    sqlite3_finalize(stmt);
+}
+
 static void AccumulateSemicolonFacetTokens(const std::string& rawValue,
                                            std::unordered_map<std::string, int>* counts) {
     if (!counts || rawValue.empty()) return;
@@ -6190,6 +6209,7 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
     if (!filter.specificCoverKey.empty()) {
         ExactCoverWallSelectionMembers exactMembers;
         if (ParseExactCoverWallSelection(filter.specificCoverKey, exactMembers)) {
+            ExpandExactCoverWallRegistryAliases(m_db, exactMembers);
             if (!exactMembers.keys.empty()) {
                 EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys);
             }
@@ -18593,6 +18613,7 @@ std::vector<int64_t> Database::getFileIdsForCoverTileMembership(const std::strin
     if (!m_db || tileIdentityKey.empty()) return out;
     ExactCoverWallSelectionMembers exactMembers;
     if (ParseExactCoverWallSelection(tileIdentityKey, exactMembers)) {
+        ExpandExactCoverWallRegistryAliases(m_db, exactMembers);
         if (!exactMembers.keys.empty()) {
             EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys, &out);
         }
@@ -19048,7 +19069,8 @@ bool Database::persistCoverFacetCache(const SearchFilter& filter,
                                       const std::vector<CoverFacetEntry>& entries) {
     if (!ShouldPersistFacetEntriesForFilter(filter, (int)entries.size())) return false;
     const std::string persistentCacheKey =
-        BuildPersistentFacetCacheKey(filter, limit, "cover_cluster_v5");
+        BuildPersistentFacetCacheKey(
+            filter, limit, filter.folderPath.empty() ? "cover_cluster_v5" : "cover_folder_distinct_v1");
     auto payload = SerializeCoverFacetEntries(entries);
     return saveFacetQueryCache(persistentCacheKey, payload, (int)entries.size());
 }

@@ -96,6 +96,7 @@ int main() {
     }});
     aura::cover_wall::AppendUniqueCoverWallPageItems(bridged.items, bridgePage.items);
     const bool transitiveBridgeCollapsed = bridged.items.size() == 1 &&
+        bridged.items[0].key == "F|H|bridge-a|123" &&
         bridged.items[0].wallMemberKeys.size() == 2;
     auto appended = first.items;
     aura::cover_wall::AppendUniqueCoverWallPageItems(appended, second.items);
