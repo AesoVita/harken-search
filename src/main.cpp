@@ -99,7 +99,10 @@
 #include "AITranscriptionResultStateAdapter.h"
 #include "VoiceAssetOrganizer.h"
 #include "Theme.h"              // 主题颜色系统
-#include "ThemeInspector.h"     // 主题检视模式
+#include "ThemeInspector.h"
+#include "ui/TransportVisualAudit.h"
+#include "ui/TransportContrast.h"     // 主题检视模式
+#include "ui/TransportBlendSlider.h"
 #include "HarkenSearchThemeManager.h"   // 次世代视觉管理器
 #include "HarkenSearchWidgets.h"        // Aris shared controls for core product flows
 #include "HarkenSearchIcons.h"          // 官方品牌字标（菜单栏/启动页同源）
@@ -131,6 +134,7 @@
 #include "ui/CoreWorkspaceStyle.h"
 #include "ui/ModuleWindowShell.h"
 #include "CoverWallPageResultBuilder.h"
+#include "CoverWallSelectionKey.h"
 #include "CoverWallFacetRefreshPolicy.h"
 #include "CoverWallCachePolicy.h"
 #include "CoverWallTextureMirrorPolicy.h"
@@ -964,7 +968,7 @@ using aura::cover_wall::SanitizeCoverWallItemsForCache;
 using aura::cover_wall::BuildCoverWallItemsFromCachedKeys;
 using aura::cover_wall::BuildCoverWallItemsFromSearchResultsFallback;
 using aura::cover_wall::ConvertCoverWallEntryToItem;
-using aura::cover_wall::BuildCoverWallVisualDedupeToken;
+using aura::cover_wall::AppendUniqueCoverWallPageItems;
 using aura::cover_wall::BuildCoverWallPageLoadResult;
 using aura::cover_wall::BuildCoverWallLoadResultFromEntries;
 using aura::cover_wall::LoadGlobalCoverWallPage;
@@ -5329,6 +5333,10 @@ void LoadAppSettings(AppState& state) {
         state.settingsDirty = true;
     }
 
+    state.settings.infoPages.visibleMask = ParseInt(kv["infoPageVisibleMask"], 15);
+    state.settings.infoPages.selected = ParseInt(kv["infoSelectedPage"], 1);
+    state.settings.infoPages.Normalize(AURA_BUILD_DIAGNOSTICS != 0);
+
     // UI sizing. Reading font is the single user-facing size; chrome is pinned.
     {
         auto itReading = kv.find("readingFontSize");
@@ -6258,6 +6266,8 @@ bool TrySaveAppSettings(const AppState& state) {
     items.push_back({"fileInfoDockSide", std::to_string((int)state.fileInfoDockSide)});
     items.push_back({"sidebarDockSide", std::to_string((int)state.sidebarDockSide)});
     items.push_back({"infoPanelLayoutVersion", "1"});
+    items.push_back({"infoPageVisibleMask", std::to_string(state.settings.infoPages.visibleMask)});
+    items.push_back({"infoSelectedPage", std::to_string(state.settings.infoPages.selected)});
 
     // UI sizing
     items.push_back({"fontSize", std::to_string(state.settings.fontSize)});
@@ -17220,7 +17230,6 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ARTWORK_WALL_ITEM")) {
                         if (payload->Data && payload->DataSize > 0) {
                             std::string key((const char*)payload->Data);
-                            auto fileIds = state.database.getFileIdsForCoverTileMembership(key);
                             playlistChanged = AddCoverTileMembershipToPlaylist(
                                 state, pl.id, pl.name, key, "sidebar-cover-drag");
                         }
@@ -17365,8 +17374,7 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
-    const FileInfoPanelChrome& chrome,
-    ImGuiTabItemFlags artworkFlags) {
+    const FileInfoPanelChrome& chrome) {
     auto withAlpha = [](ImVec4 c, float a) -> ImVec4 { c.w = a; return c; };
     auto mix = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
         return ImVec4(
@@ -17411,9 +17419,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Metadata Summary (classic library layout)
         // ---------------------------------------------------------------------
-        bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-        ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22027");
-        DecorateFileInfoTab(chrome, tabMetaOpen);
+        bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
         if (tabMetaOpen) {
             BeginTransientScrollbarChild("##MetaSummaryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -18107,13 +18114,12 @@ void RenderFileInfoPanelTabContents(
 
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } else {
             // Fallback: keep Info functional even when no file is loaded in engine.
-            bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-            ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22787");
-            DecorateFileInfoTab(chrome, tabMetaOpen);
+            bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
             if (tabMetaOpen) {
                 BeginTransientScrollbarChild("##MetaSummaryNoLoaded", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
                 ImGui::Indent(10.0f);
@@ -18171,7 +18177,7 @@ void RenderFileInfoPanelTabContents(
                 }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } // end loaded/unloaded meta summary
 
@@ -18182,9 +18188,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Artwork wall (封面墙 - 极速版)
         // ---------------------------------------------------------------------
-        bool tabCoverOpen = ImGui::BeginTabItem(L(Info_ArtworkTab), nullptr, artworkFlags);
-        ThemeInspector::RegisterLastItem("info.artwork", L(Info_ArtworkTab), "src/main.cpp:22857");
-        DecorateFileInfoTab(chrome, tabCoverOpen);
+        bool tabCoverOpen = (state.settings.infoPages.selected == 1);
+
         SetCoverWallPriorityMode(tabCoverOpen);
 
         // 方案 A：仅当封面墙 Tab 打开时才拉表+首屏预填，非封面墙时不跑以降低主线程压力（见 第一刀）
@@ -18713,20 +18718,7 @@ void RenderFileInfoPanelTabContents(
                     } else if (!staleEntriesView) {
                     SanitizeCoverWallItemsForCache(page.items);
                     if (wasLoadingNextPage) {
-                        std::unordered_set<std::string> existingTokens;
-                        existingTokens.reserve(cw.items.size() + page.items.size());
-                        for (const auto& it : cw.items) {
-                            existingTokens.insert(BuildCoverWallVisualDedupeToken(it));
-                        }
-                        for (auto& item : page.items) {
-                            const std::string dedupeToken =
-                                BuildCoverWallVisualDedupeToken(item);
-                            if (!item.key.empty() &&
-                                !dedupeToken.empty() &&
-                                existingTokens.insert(dedupeToken).second) {
-                                cw.items.push_back(std::move(item));
-                            }
-                        }
+                        AppendUniqueCoverWallPageItems(cw.items, page.items);
                     } else {
                         cw.items = std::move(page.items);
                     }
@@ -18856,6 +18848,9 @@ void RenderFileInfoPanelTabContents(
                     setDisplayItems(&cw.items, CoverWallSource::Global);
                 }
 
+                globalPageLoadingWithoutStableItems =
+                    (cw.loading || cw.entriesInFlight || cw.foldersInFlight || cw.preloadInFlight) &&
+                    (!pDisplayItems || pDisplayItems->empty());
                 // Refresh the cover-wall load-state text.
                 }
             }
@@ -18886,9 +18881,8 @@ void RenderFileInfoPanelTabContents(
 // 底部工具栏（固定，不跟随滚动）
             constexpr float kArtworkFaderTrackH = 14.0f;
             constexpr float kArtworkSliderStripH = 22.0f;
-            float bottomBarH = kArtworkSliderStripH + 4.0f;
             float availH = ImGui::GetContentRegionAvail().y;
-            float scrollH = std::max(32.0f, availH - bottomBarH);
+            float scrollH = FileInfoArtworkContentHeight(availH, kArtworkSliderStripH);
             cw.thumbSize = aura::coverwall::ClampThumbSize(cw.thumbSize);
 
             // When a specific cover-key filter is active, force-narrow the
@@ -18905,15 +18899,21 @@ void RenderFileInfoPanelTabContents(
                 state.coverFilterActive &&
                 !state.coverFilterPath.empty()) {
                 CoverModule::CoverItem ci;
+                std::vector<std::string> selectedKeys;
+                const bool exactSelection = aura::cover_wall::DecodeCoverWallSelectionKey(
+                    state.coverFilterPath, selectedKeys);
+                const std::string selectedTileKey = exactSelection
+                    ? selectedKeys.front() : state.coverFilterPath;
                 if (UseReplacementCoverWallIntegratedMode(state) &&
                     !cw.pinnedCoverFilterItem.key.empty() &&
-                    cw.pinnedCoverFilterItem.key == state.coverFilterPath) {
+                    (cw.pinnedCoverFilterItem.key == state.coverFilterPath ||
+                     cw.pinnedCoverFilterItem.wallSelectionKey == state.coverFilterPath)) {
                     ci = cw.pinnedCoverFilterItem;
                 } else {
                     auto findByKey = [&](const std::vector<CoverModule::CoverItem>* src) -> const CoverModule::CoverItem* {
                         if (!src) return nullptr;
                         for (const auto& it : *src) {
-                            if (it.key == state.coverFilterPath) return &it;
+                            if (it.key == selectedTileKey) return &it;
                         }
                         return nullptr;
                     };
@@ -18924,11 +18924,12 @@ void RenderFileInfoPanelTabContents(
                     if (found) {
                         ci = *found;
                     } else {
-                        ci.key = state.coverFilterPath;
+                        ci.key = selectedTileKey;
                         ci.kind = CoverModule::CoverKind::FolderCover;
-                        ci.label = BaseNameFromUtf8Path(state.coverFilterPath);
+                        ci.label = BaseNameFromUtf8Path(selectedTileKey);
                     }
                 }
+                ci.wallSelectionKey = state.coverFilterPath;
                 ci.hitCount = (int64_t)state.searchResults.size();
                 coverFilterPinned.push_back(std::move(ci));
                 pDisplayItems = &coverFilterPinned;
@@ -19129,7 +19130,7 @@ void RenderFileInfoPanelTabContents(
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().coverWallBG);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true);
             int coverWallReadyCount = 0;  // 供底部统计显示
             int coverWallLiveTextureCount = 0;
             int coverWallMirrorCount = 0;
@@ -19640,7 +19641,14 @@ void RenderFileInfoPanelTabContents(
                                 ImGui::SetCursorScreenPos(cellScreenPos);
                                 if (ImGui::InvisibleButton("##ArtHit", ImVec2(thumb, thumb))) {
                                     auto t0 = std::chrono::steady_clock::now();
-                                    if (item.key.rfind("?|", 0) == 0) {
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    if (item.key.rfind("?|", 0) == 0 && item.wallMemberKeys.size() <= 1) {
                                         state.folderFilterActive = true;
                                         // T2.6: cover wall art click 入口 canonical
                                         state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(item.folderPathUtf8);
@@ -19649,15 +19657,15 @@ void RenderFileInfoPanelTabContents(
                                         state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                     } else {
                                         // Query without a folder boundary for this identity.
-                                        if (state.coverFilterActive && state.coverFilterPath == item.key) {
+                                        if (state.coverFilterActive && state.coverFilterPath == selectionKey) {
                                             state.coverFilterActive = false;
                                             state.coverFilterPath.clear();
                                             state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                         } else {
                                             state.coverFilterActive = true;
-                                            state.coverFilterPath = item.key;
+                                            state.coverFilterPath = selectionKey;
                                             if (state.database.isOpen()) {
-                                                (void)state.database.getFileIdsForCoverTileMembership(item.key);
+                                                (void)state.database.getFileIdsForCoverTileMembership(selectionKey);
                                             }
                                             // Snapshot the clicked item so the render-time
                                             // "narrow wall to active cover" override always
@@ -19668,6 +19676,7 @@ void RenderFileInfoPanelTabContents(
                                             // collapses to "0 个封面".
                                             if (UseReplacementCoverWallIntegratedMode(state)) {
                                                 state.coverWall.pinnedCoverFilterItem = item;
+                                                state.coverWall.pinnedCoverFilterItem.wallSelectionKey = selectionKey;
                                             } else {
                                                 state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                             }
@@ -19699,7 +19708,14 @@ void RenderFileInfoPanelTabContents(
 
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                                     MaybePausePlaybackOnInScopeDragStart();
-                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", item.key.c_str(), (int)(item.key.size() + 1));
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", selectionKey.c_str(), (int)(selectionKey.size() + 1));
                                     ImGui::Text(L(Main_CategorizeCoverAllFmt), item.label.c_str());
                                     ImGui::EndDragDropSource();
                                 }
@@ -19875,20 +19891,19 @@ void RenderFileInfoPanelTabContents(
                     cw.thumbSize,
                     aura::coverwall::kMinThumbSizePx,
                     aura::coverwall::ResolveThumbSizeSliderMaxPx(panelWidth));
-                ImGui::SetCursorScreenPos(ImVec2(stripPos.x, stripPos.y + stripH));
+                FinishFileInfoArtworkFooter(stripPos, stripH);
             }
 
             } // end warmup skip else
 
-            ImGui::EndTabItem();
+
             DevTools_EndFramePhase();
         }
 
         // Transfer History tab — hidden in release builds (placeholder only)
 #if AURA_BUILD_DIAGNOSTICS
-        bool tabTransferOpen = ImGui::BeginTabItem(L(Info_TransferHistoryTab));
-        ThemeInspector::RegisterLastItem("info.transferHistory", L(Info_TransferHistoryTab), "src/main.cpp:24590");
-        DecorateFileInfoTab(chrome, tabTransferOpen);
+        bool tabTransferOpen = (state.settings.infoPages.selected == 2);
+
         if (tabTransferOpen) {
             BeginTransientScrollbarChild("##TransferHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19926,16 +19941,15 @@ void RenderFileInfoPanelTabContents(
             ImGui::PopStyleColor(2);
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 #endif // AURA_BUILD_DIAGNOSTICS
 
         // ---------------------------------------------------------------------
         // Play History - Recent playback history — 始终可见
         // ---------------------------------------------------------------------
-        bool tabPlayOpen = ImGui::BeginTabItem(L(Info_PlayHistoryTab));
-        ThemeInspector::RegisterLastItem("info.playHistory", L(Info_PlayHistoryTab), "src/main.cpp:24636");
-        DecorateFileInfoTab(chrome, tabPlayOpen);
+        bool tabPlayOpen = (state.settings.infoPages.selected == 3);
+
         if (tabPlayOpen) {
             BeginTransientScrollbarChild("##PlayHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19980,7 +19994,7 @@ void RenderFileInfoPanelTabContents(
             }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 }
 
@@ -24639,7 +24653,7 @@ static bool SidebarClearAllGlyphButton(const char* id_str, const ImVec2& size_ar
 // 独立组件：PAN 旋钮 (半圆弧 + 白点 + 蓝字 + 左右排版)
 // 布局：左侧 "PAN" 标签 → 中间半圆弧旋钮 → 右侧数值 (L/R/C)
 // 拖拽改值、双击归零、右键归零
-static bool PanKnob(const char* label, float* v, float v_min, float v_max, const ImVec2& size_arg = ImVec2(110, 32)) {
+static bool PanKnob(const char* label, float* v, float v_min, float v_max, const ImVec4& transportSurface, const ImVec2& size_arg = ImVec2(110, 32)) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (window->SkipItems) return false;
 
@@ -24715,6 +24729,26 @@ static bool PanKnob(const char* label, float* v, float v_min, float v_max, const
         }
     }
 
+    const ImVec4 panSurface = is_disabled ? transportSurface : TransportContrast::Over(
+        ImVec4(0, 0, 0, isLightTheme ? 0.04f : 0.12f), transportSurface);
+    if (!is_disabled) {
+        const auto readable = [&](ImU32 color) {
+            return ImGui::GetColorU32(TransportContrast::ForSurface(ImGui::ColorConvertU32ToFloat4(color), panSurface, 3.2));
+        };
+        bg_arc_col = readable(bg_arc_col);
+        dot_col = readable(dot_col);
+        fill_arc_col = readable(fill_arc_col);
+        tick_col = readable(tick_col);
+        text_col = ImGui::GetColorU32(TransportContrast::ForSurface(
+            ImGui::ColorConvertU32ToFloat4(text_col), transportSurface, 4.7));
+    }
+    if (TransportVisualAudit::Collecting()) {
+        const ImU32 bg = ImGui::GetColorU32(panSurface);
+        TransportVisualAudit::Record("pan.arc", false, bg_arc_col, bg, bb.Min, bb.Max, is_disabled);
+        TransportVisualAudit::Record("pan.dot", false, dot_col, bg, bb.Min, bb.Max, is_disabled);
+        if (!is_center) TransportVisualAudit::Record("pan.value", true, text_col,
+            TransportVisualAudit::surface, bb.Min, bb.Max, is_disabled);
+    }
     // 3. 标签已去除（节省空间）
     ImDrawList* dl = window->DrawList;
 
@@ -24903,7 +24937,7 @@ int g_magicEqQaActiveDragPart = 0;
 #endif
 
 static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sampleRate,
-                           bool& saveSettingsNow) {
+                           bool& saveSettingsNow, const ImVec4& transportSurface) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (!window || window->SkipItems) return false;
     settings.widgetWidth = std::clamp(settings.widgetWidth, 120.0f, 1600.0f);
@@ -25312,11 +25346,12 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     rightX = railLeft + railWidth * highPercent * 0.01f;
 
     const ThemeColorScheme& theme = ThemeColors::current();
-    const ImU32 baseText = ImGui::GetColorU32(theme.interfaceText);
-    const ImU32 muted = ImGui::GetColorU32(ImVec4(theme.interfaceText.x, theme.interfaceText.y,
-                                                  theme.interfaceText.z, 0.48f));
-    const ImVec4& statusColor = !settings.enabled ? theme.interfaceText
-        : (settings.mode == MagicEQMode::Notch ? theme.waveformSelectionEdge : theme.controlAccent);
+    const ImVec4 primaryText = TransportContrast::ForSurface(theme.interfaceText, transportSurface, 4.7);
+    const ImU32 baseText = ImGui::GetColorU32(primaryText);
+    const ImU32 muted = ImGui::GetColorU32(TransportContrast::ForSurface(
+        ImVec4(primaryText.x, primaryText.y, primaryText.z, .48f), transportSurface, 4.7));
+    const ImVec4 statusColor = TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
+        : (settings.mode == MagicEQMode::Notch ? theme.waveformSelectionEdge : theme.controlAccent), transportSurface, 3.2);
     const ImU32 status = ImGui::GetColorU32(statusColor);
     ImDrawList* draw = window->DrawList;
     // The EQ shares the transport bar surface; only the switch, rail and mode
@@ -25324,13 +25359,13 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     const bool markHover = toggleHit;
     const bool markPressed = markHover && held;
     const ImVec4 markBackground = !settings.enabled
-        ? ImLerp(theme.transportBarBG, theme.chromeBorder, markHover ? 0.38f : 0.23f)
-        : ImLerp(theme.transportBarBG, theme.controlAccent,
+        ? ImLerp(transportSurface, theme.chromeBorder, markHover ? 0.38f : 0.23f)
+        : ImLerp(transportSurface, theme.controlAccent,
                  markPressed ? 0.06f : (markHover ? 0.17f : 0.11f));
-    const ImU32 markColor = settings.enabled
-        ? ImGui::GetColorU32(ImLerp(theme.controlAccent, theme.interfaceText,
-                                   markHover && !markPressed ? 0.23f : 0.0f))
-        : muted;
+    const ImU32 markColor = ImGui::GetColorU32(TransportContrast::ForSurface(settings.enabled
+        ? ImLerp(theme.controlAccent, primaryText, markHover && !markPressed ? .23f : 0.f)
+        : ImGui::ColorConvertU32ToFloat4(muted),
+        TransportContrast::Over(markBackground, transportSurface), 4.7));
     draw->AddRectFilled(markMin, markMax, ImGui::GetColorU32(markBackground), 3.0f);
     const ImVec2 magicEqStar(markMin.x + 9.5f, markMin.y + 12.0f);
     const float starOuter = 5.5f, starInner = 2.2f;
@@ -25346,42 +25381,54 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     draw->AddText(markFont ? markFont : ImGui::GetFont(), 14.0f,
                   ImVec2(markMin.x + 18.0f, markMin.y + 3.5f), markColor, "EQ");
     const ImU32 markLineColor = settings.enabled
-        ? ImGui::GetColorU32(ImLerp(theme.controlAccent, theme.transportBarBG,
+        ? ImGui::GetColorU32(ImLerp(theme.controlAccent, transportSurface,
                                    markPressed ? 0.12f : (markHover ? 0.04f : 0.0f)))
         : ImGui::GetColorU32(ImVec4(theme.interfaceText.x, theme.interfaceText.y,
                                     theme.interfaceText.z, 0.22f));
     draw->AddLine(ImVec2(markMin.x + 3.0f, markMax.y - 1.0f),
                   ImVec2(markMax.x - 3.0f, markMax.y - 1.0f), markLineColor,
                   markPressed ? 2.0f : 1.5f);
+    TransportVisualAudit::RecordGlyphs("eq.label", markColor, ImGui::GetColorU32(markBackground),
+        ImVec2(markMin.x + 18.0f, markMin.y + 3.5f), "EQ", markFont, 14.0f);
     const SlopeDisplay steepnessLabel = slopeDisplay(settings.steepness);
     const float slopeAvailableWidth = std::max(0.0f, steepnessVisibleRight - steepnessLeft);
     const ImVec2 fullSlopeSize = ImGui::CalcTextSize(steepnessLabel.compact);
     const ImVec2 shortSlopeSize = ImGui::CalcTextSize(steepnessLabel.shortValue);
     if (slopeAvailableWidth >= 4.0f) {
+        const float slopeClipHeight = std::max(13.0f, 1.0f + std::max(fullSlopeSize.y, shortSlopeSize.y));
         draw->PushClipRect(ImVec2(steepnessLeft, pos.y),
-                           ImVec2(steepnessVisibleRight, pos.y + 13.0f), true);
+                           ImVec2(steepnessVisibleRight, pos.y + slopeClipHeight), true);
         if (slopeAvailableWidth >= 22.0f + fullSlopeSize.x) {
             drawSteepnessCurve(draw, ImVec2(steepnessLeft + 1.0f, pos.y + 8.0f), settings.mode,
                                settings.steepness, settings.enabled ? status : muted);
             draw->AddText(ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), muted,
                           steepnessLabel.compact);
+            TransportVisualAudit::RecordGlyphs("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(steepnessLeft + 22.0f, pos.y + 1.0f), steepnessLabel.compact);
         } else if (slopeAvailableWidth >= shortSlopeSize.x + 2.0f) {
             draw->AddText(ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), muted,
                           steepnessLabel.shortValue);
+            TransportVisualAudit::RecordGlyphs("eq.slope", muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(steepnessLeft + 1.0f, pos.y + 1.0f), steepnessLabel.shortValue);
         } else if (slopeAvailableWidth >= 18.0f) {
             drawSteepnessCurve(draw, ImVec2(steepnessLeft, pos.y + 8.0f), settings.mode,
                                settings.steepness, settings.enabled ? status : muted);
+            TransportVisualAudit::Record("eq.slope", false, settings.enabled ? status : muted,
+                ImGui::GetColorU32(transportSurface), ImVec2(steepnessLeft, pos.y),
+                ImVec2(steepnessVisibleRight, pos.y + 13.0f));
         } else {
             const float arrowX = steepnessLeft + slopeAvailableWidth * 0.5f;
             draw->AddTriangleFilled(ImVec2(arrowX - 3.0f, pos.y + 4.0f),
                                     ImVec2(arrowX + 3.0f, pos.y + 4.0f),
                                     ImVec2(arrowX, pos.y + 8.0f), muted);
+            TransportVisualAudit::Record("eq.slope", false, muted, ImGui::GetColorU32(transportSurface),
+                ImVec2(arrowX - 3.0f, pos.y + 4.0f), ImVec2(arrowX + 3.0f, pos.y + 8.0f));
         }
         draw->PopClipRect();
     }
 
-    const ImU32 tickColor = ImGui::GetColorU32(ImVec4(theme.interfaceText.x, theme.interfaceText.y,
-                                                      theme.interfaceText.z, 0.20f));
+    const ImU32 tickColor = ImGui::GetColorU32(TransportContrast::ForSurface(
+        ImVec4(primaryText.x, primaryText.y, primaryText.z, .20f), transportSurface, 3.1));
     struct RulerTick { float frequencyHz; const char* label; };
     constexpr RulerTick majorTicks[] = {
         {20.0f, "20"}, {50.0f, "50"}, {100.0f, "100"}, {200.0f, "200"},
@@ -25439,6 +25486,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                 labelLeft + labelSize.x > frequencyLabelMinX - 2.0f;
             if (!frequencyLabelOverlap && labelLeft >= lastLabelRight + 4.0f) {
                 draw->AddText(ImVec2(labelLeft, pos.y + 2.0f), muted, tick.label);
+                TransportVisualAudit::RecordGlyphs("eq.tick_label", muted, ImGui::GetColorU32(transportSurface),
+                    ImVec2(labelLeft, pos.y + 2.0f), tick.label);
                 lastLabelRight = labelLeft + labelSize.x;
             }
         }
@@ -25448,23 +25497,32 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                         ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    settings.enabled ? 0.42f : 0.20f)), 4.5f);
     draw->AddLine(ImVec2(leftX, railY), ImVec2(rightX, railY), status, 2.0f);
-    draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, baseText, 12);
-    const auto drawVerticalGrip = [&](float x, bool highlighted) {
-        const ImU32 gripFill = highlighted ? ImGui::GetColorU32(theme.controlAccent) : status;
+    const ImVec4 bandSurface = TransportContrast::Over(
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .42f : .20f), transportSurface);
+    const ImU32 centerDotColor = ImGui::GetColorU32(TransportContrast::ForSurface(primaryText, bandSurface, 3.2));
+    draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, centerDotColor, 12);
+    const auto drawVerticalGrip = [&](float x, bool highlighted, const char* auditId) {
+        const ImU32 gripFill = highlighted ? ImGui::GetColorU32(TransportContrast::ForSurface(
+            theme.controlAccent, transportSurface, 3.2)) : status;
         draw->AddRectFilled(ImVec2(x - 3.5f, gripTop), ImVec2(x + 3.5f, gripBottom),
-                            ImGui::GetColorU32(theme.transportBarBG), 2.0f);
+                            ImGui::GetColorU32(transportSurface), 2.0f);
         draw->AddRect(ImVec2(x - 3.5f, gripTop), ImVec2(x + 3.5f, gripBottom), gripFill, 2.0f);
         draw->AddLine(ImVec2(x, gripTop + 3.0f), ImVec2(x, gripBottom - 3.0f), gripFill, 1.5f);
+        TransportVisualAudit::Record(auditId, false, gripFill, ImGui::GetColorU32(transportSurface),
+            ImVec2(x - 3.5f, gripTop), ImVec2(x + 3.5f, gripBottom));
     };
-    drawVerticalGrip(leftX, leftEndpointHit || drag.part == DragPart::LeftEndpoint);
-    drawVerticalGrip(rightX, rightEndpointHit || drag.part == DragPart::RightEndpoint);
+    drawVerticalGrip(leftX, leftEndpointHit || drag.part == DragPart::LeftEndpoint, "eq.grip");
+    drawVerticalGrip(rightX, rightEndpointHit || drag.part == DragPart::RightEndpoint, "eq.grip.right");
+    TransportVisualAudit::Record("eq.center", false, centerDotColor, ImGui::GetColorU32(bandSurface), ImVec2(centerX - 3.2f, railY - 3.2f), ImVec2(centerX + 3.2f, railY + 3.2f));
     // Frequency detail lives above the rail so the chosen band and grips stay clear.
     if (frequencyInfoText[0] != '\0') {
         draw->AddRectFilled(ImVec2(frequencyLabelMinX, pos.y + 1.0f),
                             ImVec2(frequencyLabelMaxX, pos.y + 14.0f),
-                            ImGui::GetColorU32(theme.transportBarBG), 2.0f);
+                            ImGui::GetColorU32(transportSurface), 2.0f);
         draw->AddText(ImVec2(frequencyInfoX, pos.y + 1.0f),
                       showFrequencyFallback ? baseText : muted, frequencyInfoText);
+        TransportVisualAudit::RecordGlyphs("eq.frequency", showFrequencyFallback ? baseText : muted,
+            ImGui::GetColorU32(transportSurface), ImVec2(frequencyInfoX, pos.y + 1), frequencyInfoText);
     } else {
         const float indicatorX = frequencyInfoLeft + frequencyInfoWidth * 0.5f;
         draw->AddTriangleFilled(ImVec2(indicatorX - 3.0f, pos.y + 4.0f),
@@ -25499,7 +25557,7 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
         ImDrawList* bubbleDraw = ImGui::GetForegroundDrawList();
         bubbleDraw->AddRectFilled(ImVec2(bubbleX, pos.y - 19.0f),
                                   ImVec2(bubbleX + bubbleWidth, pos.y - 3.0f),
-                                  ImGui::GetColorU32(theme.transportBarBG), 2.0f);
+                                  ImGui::GetColorU32(transportSurface), 2.0f);
         bubbleDraw->AddRect(ImVec2(bubbleX, pos.y - 19.0f),
                             ImVec2(bubbleX + bubbleWidth, pos.y - 3.0f),
                             ImGui::GetColorU32(theme.controlAccent), 2.0f);
@@ -25515,6 +25573,10 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                         ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
                         ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    settings.enabled ? 0.16f : 0.10f)), 4.0f);
+    const ImVec4 modeBackground = TransportContrast::Over(
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
+    const ImU32 modeInk = ImGui::GetColorU32(TransportContrast::ForSurface(
+        settings.enabled ? statusColor : ImGui::ColorConvertU32ToFloat4(muted), modeBackground, 4.7));
     const char* modeLabel = GetMagicEQModeLabel(settings.enabled, static_cast<int>(settings.mode));
     const float modeTextWidth = ImGui::CalcTextSize(modeLabel).x;
     if (modeTextWidth + 8.0f > statusWidth) {
@@ -25530,6 +25592,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                        ImVec2(pos.x + width - 3.0f, pos.y + 28.0f), true);
     if (modeIconOnly) {
         const float iconX = modeLeft + (statusWidth - 18.0f) * 0.5f;
+        TransportVisualAudit::Record("eq.mode", false, settings.enabled ? status : muted,
+            ImGui::GetColorU32(modeBackground), ImVec2(iconX, pos.y + 8), ImVec2(iconX + 18, pos.y + 24));
         if (settings.enabled)
             drawSteepnessCurve(draw, ImVec2(iconX, pos.y + 16.0f), settings.mode,
                                settings.steepness, status);
@@ -25538,7 +25602,9 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                           ImVec2(iconX + 18.0f, pos.y + 16.0f), muted, 1.5f);
     } else {
         draw->AddText(ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f),
-                      settings.enabled ? status : muted, modeLabel);
+                      modeInk, modeLabel);
+        TransportVisualAudit::RecordGlyphs("eq.mode", modeInk, ImGui::GetColorU32(modeBackground),
+            ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f), modeLabel);
     }
     draw->PopClipRect();
     draw->AddLine(ImVec2(pos.x + 1.5f, pos.y + 9.0f), ImVec2(pos.x + 1.5f, pos.y + 23.0f), status, 1.5f);
@@ -37882,10 +37948,6 @@ void RenderUI(AppState& state) {
             if (ImGui::MenuItem(L(Main_MenuUpdateCenter))) {
                 state.showUpdateCenter = true;
             }
-            if (ImGui::MenuItem(L(Main_MenuUpdateChangelog))) {
-                LoadReleaseNotesFromExeDir(true);
-                g_releaseNotesUiState.wantOpen = true;
-            }
             const bool feedbackUiEnabled = CueviFeedback::IsUiEntryEnabled(BuildCueviFeedbackConfig());
             if (feedbackUiEnabled) {
             ImGui::Separator();
@@ -39943,10 +40005,14 @@ void RenderUI(AppState& state) {
     // The Info title actions belong to the module shell, so they must be
     // rendered by both the legacy right column and every Dock tree leaf.
     // Keep a fixed reserve so the drag hit area cannot cover either button.
-    constexpr float kInfoTitleActionsWidth = 48.0f;
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
                                         ImDrawList* infoDl) {
+        const float pageAvailableWidth = shell.shellWidth - 48.0f;
+        const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
+        RenderFileInfoPageActions(infoState,
+            ImVec2(shell.insetL + shell.shellWidth - 48.0f - pageWidth, 0.0f),
+            shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
         const float editIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
@@ -40056,6 +40122,21 @@ void RenderUI(AppState& state) {
         }
         if (!canEdit && !isEditing) ImGui::EndDisabled();
         ImGui::PopID();
+        return 48.0f + pageWidth;
+    };
+
+    auto drawFloatingInfoTitleActions = [&]() {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const ImRect title = window->TitleBarRect();
+        const ImVec2 saved = ImGui::GetCursorPos();
+        DockModuleShellLayout shell;
+        shell.insetL = 0.0f;
+        shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
+        shell.titleHeight = title.GetHeight();
+        ImGui::PushClipRect(title.Min, title.Max, false);
+        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+        ImGui::PopClipRect();
+        ImGui::SetCursorPos(saved);
     };
 
     auto pressDockTitle = [&](const char* moduleId, PanelState& panel,
@@ -42348,12 +42429,6 @@ void RenderUI(AppState& state) {
         const bool needsDbSetup =
             state.viewMode != ViewMode::Browser &&
             state.startupNeedsDatabaseSetup && !state.database.isOpen();
-        const bool showEmptyResultsSurface =
-            state.viewMode != ViewMode::Browser &&
-            !needsDbSetup && state.searchResults.empty() &&
-            !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-            !(state.totalFileCount == 0);
-        constexpr float kEmptyResultsSurfaceHeight = 180.0f;
         ImGuiTableFlags tableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                                       ImGuiTableFlags_Hideable |
                                       ImGuiTableFlags_BordersOuter |
@@ -42486,10 +42561,10 @@ void RenderUI(AppState& state) {
             ImGui::Dummy(ImVec2(availW, lineH));
             if (listFont) ImGui::PopFont();
         };
-        const ImVec2 fileTableOuterSize = showEmptyResultsSurface
-            ? ImVec2(0.0f, -kEmptyResultsSurfaceHeight)
-            : ImVec2(0.0f, 0.0f);
-        ImVec2 adjustedFileTableOuterSize = fileTableOuterSize;
+        // UX #109 follow-up (TASK-20261028-NO-EMPTY-SURFACE): the standalone
+        // empty-results surface was removed at the user's request, so the
+        // results table keeps its full height even with zero rows.
+        ImVec2 adjustedFileTableOuterSize = ImVec2(0.0f, 0.0f);
         if (emptyLibraryFileTable) {
             // Dropping BordersOuter would otherwise let the header fill to the independent frame.
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kResultsTableOuterBorder);
@@ -45353,8 +45428,9 @@ void RenderUI(AppState& state) {
                     LoadMoreResults(state);
                 }
 
-                // UX #109: Empty state guidance is owned by the dedicated empty-database surface.
-                // Keep the results layer empty so it cannot overlap the bottom transport controls.
+                // UX #109: Empty state — the results layer stays empty on
+                // purpose: no row is rendered and no guidance surface is
+                // reserved, so it cannot overlap the bottom transport controls.
 
                 // Apply per-tab scroll restoration only after rows/empty-state
                 // content have established this table's current scroll extent.
@@ -45393,69 +45469,6 @@ void RenderUI(AppState& state) {
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(); // Pop transparent ChildBg for table scroll region
         }
-    }
-
-    // UX #109: Empty state surface — keep guidance in its own bounded child,
-    // outside the results table and above the independent player footer.
-    const bool showStandaloneEmptyResultsSurface =
-        state.viewMode != ViewMode::Browser &&
-        !(state.startupNeedsDatabaseSetup && !state.database.isOpen()) &&
-        state.searchResults.empty() && !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-        !(state.totalFileCount == 0);
-    constexpr float kStandaloneEmptyResultsSurfaceHeight = 180.0f;
-    if (showStandaloneEmptyResultsSurface) {
-        BeginTransientScrollbarChild(
-            "##EmptyResultsSurface",
-            ImVec2(0.0f, kStandaloneEmptyResultsSurfaceHeight),
-            true,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        const bool _hasKw = (state.searchBuffer[0] != '\0');
-        const bool _hasUserCollectionRules =
-            state.activeUserCollectionIdx >= 0 &&
-            state.activeUserCollectionIdx < static_cast<int>(state.userCollections.size()) &&
-            std::any_of(
-                state.userCollections[state.activeUserCollectionIdx].rules.begin(),
-                state.userCollections[state.activeUserCollectionIdx].rules.end(),
-                [](const AppState::CollectionRule& rule) { return rule.value[0] != '\0'; });
-        const auto _hasActivePillState = [](const auto& pillState) {
-            return std::any_of(
-                pillState.begin(), pillState.end(),
-                [](const auto& entry) { return entry.second != 0; });
-        };
-        const bool _hasFilt = state.folderFilterActive || state.coverFilterActive
-            || !state.selectedFolderPath.empty() || !state.coverFilterPath.empty()
-            || state.categoryFilterBuffer[0] != '\0'
-            || state.artistFilterBuffer[0] != '\0'
-            || !state.artistFilterAlternates.empty()
-            || state.albumFilterBuffer[0] != '\0'
-            || state.formatFilterIndex != 0
-            || state.channelFilterIndex != 0
-            || state.sampleRateFilterIndex != 0
-            || state.minDurationFilter > 0.0f || state.maxDurationFilter > 0.0f
-            || state.minBpmFilter > 0.0f || state.maxBpmFilter > 0.0f
-            || state.keyFilterBuffer[0] != '\0'
-            || state.coverFilterIndex != 0
-            || state.findSameFilenameActive
-            || state.activeSmartCollection != SmartCollection::None
-            || _hasUserCollectionRules
-            || _hasActivePillState(state.genrePillState)
-            || _hasActivePillState(state.instrumentPillState)
-            || !(state.showWAV && state.showMP3 && state.showFLAC && state.showOGG &&
-                 state.showAIFF && state.showM4A && state.showWMA && state.showOther);
-        const bool _dbEmpty = (state.totalFileCount == 0);
-        if (_dbEmpty) {
-            ImGui::TextDisabled("%s", L(Empty_NoFiles));
-        } else if (_hasKw && _hasFilt) {
-            ImGui::TextDisabled(L(Empty_FilterAndSearch), state.searchBuffer);
-        } else if (_hasFilt) {
-            ImGui::TextDisabled("%s", L(Empty_FilterOnly));
-        } else if (_hasKw) {
-            ImGui::TextDisabled(L(Empty_SearchOnly), state.searchBuffer);
-            ImGui::TextDisabled("%s", L(Search_NoResultTips));
-        } else {
-            ImGui::TextDisabled("%s", L(Empty_NoResults));
-        }
-        ImGui::EndChild();
     }
 
     // F-034 Relink: merge background candidate results + render inline banner
@@ -45857,7 +45870,7 @@ void RenderUI(AppState& state) {
             kTitleText);
 
 // 标题栏右上角：编辑元数据图标按钮
-        drawFileInfoTitleActions(state, rightShell, dl);
+        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl);
 
         // Right-click menu on title bar (remaining area)
         ImGui::SetCursorPos(ImVec2(rightShell.insetL, rightShell.insetT));
@@ -46282,6 +46295,9 @@ void RenderUI(AppState& state) {
         const ImU32 transportDividerStrongCol = ImGui::GetColorU32(
             uiWithAlpha(workspacePalette.splitter, 0.50f));
 
+        TransportVisualAudit::Begin(static_cast<int>(state.settings.theme), barOrigin,
+            ImVec2(barOrigin.x + barW, barOrigin.y + kBarH), ImGui::GetColorU32(transportBarBg));
+
         // One docked transport surface. The waveform shell owns the perimeter.
         barDl->AddRectFilled(
             barOrigin,
@@ -46413,11 +46429,16 @@ void RenderUI(AppState& state) {
                 : ImGui::GetColorU32(transportBarIsDark
                     ? uiWithAlpha(uiMix(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), tcsTransport.timecodeText, 0.20f), 0.96f)
                     : uiWithAlpha(tcsTransport.timecodeText, transportIdleVisual ? 0.92f : 1.0f));
+            tcColor = ImGui::GetColorU32(TransportContrast::ForSurface(
+                ImGui::ColorConvertU32ToFloat4(tcColor), transportBarBg, 4.7));
             if (mono) {
                 dl->AddText(mono, tcFontSize, tcTextPos, tcColor, tcText);
             } else {
                 dl->AddText(tcTextPos, tcColor, tcText);
             }
+
+            TransportVisualAudit::Record("timecode", true, tcColor, ImGui::GetColorU32(transportBarBg),
+                tcTextPos, ImVec2(tcTextPos.x + tcTextSize.x, tcTextPos.y + tcTextSize.y));
 
             // Click to open time input popup
             if (tcClicked && isLoaded) {
@@ -46933,6 +46954,8 @@ void RenderUI(AppState& state) {
             // 4. 绘制原有的边框与装饰
             ThemeType mascotTheme = static_cast<ThemeType>((int)state.settings.theme);
             ImU32 borderColor = isOverdriven ? ThemeMascot::getInstance().getOverdriveColor(mascotTheme, volume) : kThemeControlBorder;
+            borderColor = ImGui::GetColorU32(TransportContrast::ForSurface(
+                ImGui::ColorConvertU32ToFloat4(borderColor), transportBarBg, 3.2));
             volDl->AddRect(volPos, ImVec2(volPos.x + volWidth, volPos.y + volHeight), kThemeControlBorderOuter, 4.0f, 0, 2.5f);
             volDl->AddRect(volPos, ImVec2(volPos.x + volWidth, volPos.y + volHeight), borderColor, 4.0f, 0, isOverdriven ? 2.0f : 1.5f);
 
@@ -47007,19 +47030,30 @@ void RenderUI(AppState& state) {
             char volText[16];
             snprintf(volText, sizeof(volText), "%.0f%%", volume);
             ImVec2 textSize = ImGui::CalcTextSize(volText);
-            ImU32 textColor = isOverdriven
-                ? IM_COL32(255, 255, 255, 255)
-                : ImGui::GetColorU32(kIsRoseCedarTheme ? kThemeTextStrong
-                        : (transportBarIsDark ? uiWithAlpha(ImVec4(1.0f, 1.0f, 1.0f, 1.0f), 0.94f)
-                                              : uiWithAlpha(tcsTransport.interfaceText, 0.92f)));
+            // A small opaque backing keeps the value readable across the
+            // moving fill boundary, gradient, and overdrive effect.
+            const ImVec4 volumeLabelSurface = TransportContrast::Over(
+                ImGui::ColorConvertU32ToFloat4(kThemeControlShell), transportBarBg);
+            const ImU32 textColor = ImGui::GetColorU32(TransportContrast::ForSurface(
+                tcsTransport.interfaceText, volumeLabelSurface, 4.7));
             float jitter = isOverdriven ? (signalLevel * 1.5f * sinf(time * 40.0f)) : 0.0f;
             ImVec2 textDrawPos(
                 volPos.x + (volWidth - textSize.x) / 2,
                 volPos.y + (volHeight - textSize.y) / 2 + jitter
             );
-            ImU32 volLabelShadow = transportBarIsDark ? IM_COL32(0, 0, 0, 140) : IM_COL32(0, 0, 0, 100);
-            volDl->AddText(ImVec2(textDrawPos.x + 1, textDrawPos.y + 1), volLabelShadow, volText);
+            volDl->AddRectFilled(ImVec2(textDrawPos.x - 3, textDrawPos.y - 1),
+                ImVec2(textDrawPos.x + textSize.x + 3, textDrawPos.y + textSize.y + 1),
+                ImGui::GetColorU32(volumeLabelSurface), 2.0f);
             volDl->AddText(textDrawPos, textColor, volText);
+            if (TransportVisualAudit::Collecting()) {
+                for (int edge = 0; edge < 3; ++edge) {
+                    const ImU32 bg = ImGui::GetColorU32(volumeLabelSurface);
+                    TransportVisualAudit::Record(edge == 0 ? "volume.label" : (edge == 1 ? "volume.label.center" : "volume.label.right"),
+                        true, textColor, bg, textDrawPos, ImVec2(textDrawPos.x + textSize.x, textDrawPos.y + textSize.y));
+                }
+                TransportVisualAudit::Record("volume.outline", false, borderColor, ImGui::GetColorU32(transportBarBg),
+                    volPos, ImVec2(volPos.x + volWidth, volPos.y + volHeight));
+            }
 
             // Invisible button for interaction — 必须重新定位到 volPos
             ImGui::SetCursorScreenPos(volPos);
@@ -47116,6 +47150,10 @@ void RenderUI(AppState& state) {
                 ImU32 fillCol   = IM_COL32(255, 255, 255, 10);
                 ImU32 borderCol = isMonoMode ? tbIconActive
                                 : (stHov ? tbIconHover : tbIconIdle);
+                const ImU32 stereoSurface = isMonoMode ? TransportVisualAudit::Over(stActiveGlow, ImGui::GetColorU32(transportBarBg))
+                    : (stHov ? TransportVisualAudit::Over(kThemeControlShellHover, ImGui::GetColorU32(transportBarBg)) : ImGui::GetColorU32(transportBarBg));
+                borderCol = ImGui::GetColorU32(TransportContrast::ForSurface(
+                    ImGui::ColorConvertU32ToFloat4(borderCol), ImGui::ColorConvertU32ToFloat4(stereoSurface), 3.2));
                 float cx = sp.x + stW * 0.5f, cy = sp.y + stH * 0.5f;
                 float r  = 7.0f * sDualScl, lw = 1.4f;
                 barDl->AddCircleFilled(ImVec2(cx - sDualOff, cy), r, fillCol, 24);
@@ -47123,6 +47161,10 @@ void RenderUI(AppState& state) {
                 barDl->AddCircleFilled(ImVec2(cx + sDualOff, cy), r, fillCol, 24);
                 barDl->AddCircle(      ImVec2(cx + sDualOff, cy), r, borderCol, 24, lw);
 
+                TransportVisualAudit::Record("stereo", false, borderCol,
+                    isMonoMode ? TransportVisualAudit::Over(stActiveGlow, ImGui::GetColorU32(transportBarBg))
+                        : (stHov ? TransportVisualAudit::Over(kThemeControlShellHover, ImGui::GetColorU32(transportBarBg)) : ImGui::GetColorU32(transportBarBg)),
+                    sp, ImVec2(sp.x + stW, sp.y + stH));
                 if (stClk) state.audioEngine.setMono(!isMonoMode);
                 if (stHov) HarkenSearch::SetTooltip("%s", isStereo ? L(Player_TooltipStereo) : L(Player_TooltipMono));
                 curX += stW + 10.0f;
@@ -47155,6 +47197,10 @@ void RenderUI(AppState& state) {
                 else if (revHov)
                     barDl->AddRectFilled(rp, ImVec2(rp.x + revW, rp.y + revH), kThemeControlShellHover, 6.0f);
                 ImU32 revCol = isReversed ? tbIconActive : (revHov ? tbIconHover : tbIconIdle);
+                const ImU32 reverseSurface = isReversed ? TransportVisualAudit::Over(revActiveGlow, ImGui::GetColorU32(transportBarBg))
+                    : (revHov ? TransportVisualAudit::Over(kThemeControlShellHover, ImGui::GetColorU32(transportBarBg)) : ImGui::GetColorU32(transportBarBg));
+                revCol = ImGui::GetColorU32(TransportContrast::ForSurface(
+                    ImGui::ColorConvertU32ToFloat4(revCol), ImGui::ColorConvertU32ToFloat4(reverseSurface), 3.2));
                 {
                     // 轻巧版：5 根细线 + swoosh，无填充无边框
                     const float fibFwd[] = {21, 13, 8, 5, 3};
@@ -47183,6 +47229,10 @@ void RenderUI(AppState& state) {
                         barDl->AddLine({ex,ey}, {ex+2.5f,ey-2.5f}, swooshCol, 1.0f);
                     }
                 }
+                TransportVisualAudit::Record("reverse", false, revCol,
+                    isReversed ? TransportVisualAudit::Over(revActiveGlow, ImGui::GetColorU32(transportBarBg))
+                        : (revHov ? TransportVisualAudit::Over(kThemeControlShellHover, ImGui::GetColorU32(transportBarBg)) : ImGui::GetColorU32(transportBarBg)),
+                    rp, ImVec2(rp.x + revW, rp.y + revH));
                 if (revClk) {
                     const bool wasReversed = isReversed;  // 本帧快照=点击前状态
                     (void)auditionTransportView.toggleReversePreservingRegion();
@@ -47207,7 +47257,7 @@ void RenderUI(AppState& state) {
                 ImGui::SetCursorScreenPos(ImVec2(curX, TB_CENTER_Y(panH)));
                 float panEngine = state.audioEngine.getPan();
                 float panUI = panEngine * 50.0f;
-                if (PanKnob("##Pan", &panUI, -50.0f, 50.0f, ImVec2(panW, panH))) {
+                if (PanKnob("##Pan", &panUI, -50.0f, 50.0f, transportBarBg, ImVec2(panW, panH))) {
                     // AUDITION_NATIVE_EXCEPTION: pan-center-sense
                     state.audioEngine.setPan(panUI / 50.0f);
                 }
@@ -47291,6 +47341,8 @@ void RenderUI(AppState& state) {
                         csDl->PathFillConvex(colFill);
                     }
 
+                    if (!isMonoMode) colLine = ImGui::GetColorU32(TransportContrast::ForSurface(
+                        ImGui::ColorConvertU32ToFloat4(colLine), transportBarBg, 3.2));
                     // 圆弧轮廓
                     float lw = 1.5f;
                     csDl->PathArcTo(ctr, rIn,  startA, endA, 24); csDl->PathStroke(colLine, 0, lw);
@@ -47300,6 +47352,8 @@ void RenderUI(AppState& state) {
                     csDl->AddLine({ctr.x+cosf(endA)*rIn, ctr.y+sinf(endA)*rIn},
                                 {ctr.x+cosf(endA)*rOut, ctr.y+sinf(endA)*rOut}, colLine, lw);
 
+                    TransportVisualAudit::Record("center.outline", false, colLine, ImGui::GetColorU32(transportBarBg),
+                        csBb.Min, csBb.Max, isMonoMode);
                     // 标签已移除 — 扇形图形本身已足够表达状态
 
                     if (csHov) {
@@ -47329,7 +47383,11 @@ void RenderUI(AppState& state) {
                                   mouse.y >= bmHitMin.y && mouse.y < bmHitMax.y);
                     ImU32 bmCol = bmIsOn ? (bmHov ? IM_COL32(100, 210, 255, 255) : IM_COL32(70, 170, 240, 200))
                                          : (bmHov ? IM_COL32(170, 170, 175, 190) : IM_COL32(100, 100, 105, 110));
+                    if (!isMonoMode) bmCol = ImGui::GetColorU32(TransportContrast::ForSurface(
+                        ImGui::ColorConvertU32ToFloat4(bmCol), transportBarBg, 4.7));
                     csDl->AddText(ImGui::GetFont(), ImGui::GetFontSize() * scale, bmTextPos, bmCol, bmTxt);
+                    TransportVisualAudit::Record("bass_mono", true, bmCol, ImGui::GetColorU32(transportBarBg),
+                        bmTextPos, ImVec2(bmTextPos.x + bmW, bmTextPos.y + bmH), isMonoMode);
                     if (bmHov && ImGui::IsMouseClicked(0)) bmWantOpen = true;
                     if (bmHov) {
                         if (bmIsOn)
@@ -47400,7 +47458,7 @@ void RenderUI(AppState& state) {
                 ImGui::SetCursorScreenPos(magicEQPos);
                 if (DrawMagicEQBar("##MagicEQ", magicEQ,
                                    magicEqSampleRate,
-                                   saveMagicEQSettings))
+                                   saveMagicEQSettings, transportBarBg))
                     state.audioEngine.setMagicEQ(magicEQ);
                 if (saveMagicEQSettings) SaveAppSettings(state);
                 ThemeInspector::RegisterZone(
@@ -47735,14 +47793,12 @@ void RenderUI(AppState& state) {
             const float expH = 24.0f;
             // Export region button
             ImGui::SetCursorScreenPos(ImVec2(curX, TB_CENTER_Y(expH)));
-            const bool useJadeMistExportText = (state.settings.theme == AppTheme::JadeMist);
-            if (useJadeMistExportText) {
-                ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1.0f, 1.0f, 1.0f, 0.98f));
-            }
+            const ImVec4 exportSurface = TransportContrast::Over(ImGui::GetStyleColorVec4(ImGuiCol_Button), transportBarBg);
+            ImGui::PushStyleColor(ImGuiCol_Text, TransportContrast::ForSurface(
+                ImGui::GetStyleColorVec4(ImGuiCol_Text), exportSurface, 4.7));
             const bool exportRegionClicked = ImGui::Button(L(Main_ExportRegionBtn), ImVec2(90, expH));
-            if (useJadeMistExportText) {
-                ImGui::PopStyleColor();
-            }
+            TransportVisualAudit::Item("selection.export", true, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(exportSurface));
+            ImGui::PopStyleColor();
             if (exportRegionClicked) {
                 const std::string outputPath =
                     Platform::RegionDialogs::SaveRegionWavFileDialogUtf8(g_hwnd);
@@ -47792,6 +47848,11 @@ void RenderUI(AppState& state) {
             if (m5Avail < 260.0f) m5Collapse = 3;
         }
         bool m5HasOverflow = (m5Collapse >= 1 && state.showSpectrogram);
+        if (TransportVisualAudit::Collecting()) {
+            TransportVisualAudit::spectrum = state.showSpectrogram;
+            TransportVisualAudit::selection = hasRegion && state.audioEngine.isLoaded();
+            TransportVisualAudit::spectrumCollapse = m5Collapse;
+        }
 
         float transportCountInlineW = 0.0f;
         if (!transportItemCountText.empty()) {
@@ -47843,13 +47904,14 @@ void RenderUI(AppState& state) {
             if (!transportItemCountText.empty()) {
                 ImGui::AlignTextToFramePadding();
                 ImGui::PushFont(GetUIFontEmphasis());
-                const ImVec4 transportCountTone = ImVec4(
+                const ImVec4 transportCountTone = TransportContrast::ForSurface(ImVec4(
                     1.0f,
                     1.0f,
                     1.0f,
-                    transportIdleVisual ? 0.88f : 0.98f);
+                    transportIdleVisual ? 0.88f : 0.98f), transportBarBg, 4.7);
                 ImGui::PushStyleColor(ImGuiCol_Text, transportCountTone);
                 ImGui::TextUnformatted(transportItemCountText.c_str());
+                TransportVisualAudit::Item("count", true, ImGui::GetColorU32(transportCountTone), ImGui::GetColorU32(transportBarBg));
                 ImGui::PopStyleColor();
                 ImGui::PopFont();
                 ImGui::SameLine(0, 8.0f);
@@ -47869,6 +47931,9 @@ void RenderUI(AppState& state) {
             ImGui::PushStyleColor(ImGuiCol_ButtonActive, IM_COL32(164, 181, 203, 255));
             ImGui::PushStyleColor(ImGuiCol_Border, IM_COL32(82, 107, 137, 255));
             const bool dbComboOpen = BeginTransientScrollbarCombo("##DbSwitch", currentDbDisplay.c_str(), ImGuiComboFlags_HeightLarge);
+            TransportVisualAudit::Item("database.label", true, ImGui::GetColorU32(ImGuiCol_Text),
+                ImGui::GetColorU32(ImGui::IsItemHovered() ? ImGuiCol_FrameBgHovered : ImGuiCol_FrameBg));
+            TransportVisualAudit::Item("database.arrow", false, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(ImGuiCol_Button));
             ThemeInspector::RegisterLastItem(
                 "transport.database", "Database", "src/main.cpp:51867");
             ImGui::PopStyleColor(8);
@@ -47917,7 +47982,21 @@ void RenderUI(AppState& state) {
         }
 
 // 频谱开关（始终可见）
+        const ImVec4 spectrumFrame = TransportContrast::Over(ImGui::GetStyleColorVec4(ImGuiCol_FrameBg), transportBarBg);
+        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+        ImGui::PushStyleColor(ImGuiCol_Text, TransportContrast::ForSurface(
+            tcsTransport.interfaceText, transportBarBg, 4.7));
+        ImGui::PushStyleColor(ImGuiCol_Border, TransportContrast::ForSurface(
+            ImGui::GetStyleColorVec4(ImGuiCol_Border), transportBarBg, 3.2));
+        ImGui::PushStyleColor(ImGuiCol_CheckMark, TransportContrast::ForSurface(
+            ImGui::GetStyleColorVec4(ImGuiCol_CheckMark), spectrumFrame, 3.2));
+        ImGui::PushStyleColor(ImGuiCol_SliderGrab, TransportContrast::ForSurface(
+            ImGui::GetStyleColorVec4(ImGuiCol_SliderGrab), spectrumFrame, 3.2));
         ImGui::Checkbox(L(Wave_SpectrogramToggle), &state.showSpectrogram);
+        TransportVisualAudit::Item("spectrum.label", true, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(transportBarBg));
+        TransportVisualAudit::Item("spectrum.box", false, ImGui::GetColorU32(ImGuiCol_Border), ImGui::GetColorU32(transportBarBg));
+        if (state.showSpectrogram) TransportVisualAudit::Item("spectrum.check", false,
+            ImGui::GetColorU32(ImGuiCol_CheckMark), ImGui::GetColorU32(ImGuiCol_FrameBg));
         ThemeInspector::RegisterLastItem(
             "transport.spectrum", "Spectrum", "src/main.cpp:51914");
         if (HoveredForHelp()) {
@@ -47930,9 +48009,14 @@ void RenderUI(AppState& state) {
                 ImGui::SameLine();
                 ImGui::SetNextItemWidth(std::max(80.0f, ImGui::GetContentRegionAvail().x * 0.18f));
                 float blendPercent = state.spectrogramBlend * 100.0f;
-                if (ImGui::SliderFloat(u8"##SpectrogramBlend", &blendPercent, 0.0f, 100.0f, u8"%.0f%%")) {
+                const ImU32 blendInk = ImGui::GetColorU32(TransportContrast::ForSurface(
+                    tcsTransport.interfaceText, spectrumFrame, 4.7));
+                if (TransportBlendSlider::Draw(u8"##SpectrogramBlend", &blendPercent,
+                    blendInk, ImGui::GetColorU32(spectrumFrame))) {
                     state.spectrogramBlend = blendPercent / 100.0f;
                 }
+                TransportVisualAudit::Item("spectrum.blend", true, blendInk, ImGui::GetColorU32(spectrumFrame));
+                TransportVisualAudit::Item("spectrum.blend.grip", false, ImGui::GetColorU32(ImGuiCol_SliderGrab), ImGui::GetColorU32(spectrumFrame));
                 if (HoveredForHelp()) {
                     HarkenSearch::SetTooltip("%s", L(Wave_BlendTooltip));
                 }
@@ -47950,11 +48034,17 @@ void RenderUI(AppState& state) {
                 else if (state.spectrogramFFTSize == 4096) fftIdx = 3;
                 else if (state.spectrogramFFTSize == 8192) fftIdx = 4;
                 else fftIdx = 5;
+                ImGui::PushStyleColor(ImGuiCol_Text, TransportContrast::ForSurface(
+                    tcsTransport.interfaceText, spectrumFrame, 4.7));
+                ImGui::PushStyleColor(ImGuiCol_Button, spectrumFrame);
                 if (ImGui::Combo(u8"##FFTSize", &fftIdx, fftSizes, 6)) {
                     const int sizes[] = { 512, 1024, 2048, 4096, 8192, 16384 };
                     state.spectrogramFFTSize = sizes[fftIdx];
                     state.spectrogramNeedsUpdate = true;
                 }
+                TransportVisualAudit::Item("spectrum.fft", true, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(spectrumFrame));
+                TransportVisualAudit::Item("spectrum.fft.arrow", false, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(ImGuiCol_Button));
+                ImGui::PopStyleColor(2);
                 if (HoveredForHelp()) {
                     HarkenSearch::SetTooltip("%s", L(Wave_FFTTooltip));
                 }
@@ -47965,6 +48055,8 @@ void RenderUI(AppState& state) {
                         state.spectrogramBlend = GetReadableSpectrogramPreset().blend;
                     }
                 }
+                TransportVisualAudit::Item("spectrum.split", true, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(transportBarBg));
+                TransportVisualAudit::Item("spectrum.split.box", false, ImGui::GetColorU32(ImGuiCol_Border), ImGui::GetColorU32(transportBarBg));
                 if (HoveredForHelp()) {
                     HarkenSearch::SetTooltip("%s", L(Wave_SplitTooltip));
                 }
@@ -47973,11 +48065,14 @@ void RenderUI(AppState& state) {
         }
 
 // 溢出按钮 ··· （有隐藏控件时显示）
+        ImGui::PopStyleColor(4);
+        ImGui::PopStyleVar();
         if (m5HasOverflow) {
             ImGui::SameLine(0, 4.0f);
             if (ImGui::Button(L(Main_M5OverflowBtn), ImVec2(26, 0))) {
                 ImGui::OpenPopup("##M5OverflowPopup");
             }
+            TransportVisualAudit::Item("spectrum.overflow", true, ImGui::GetColorU32(ImGuiCol_Text), ImGui::GetColorU32(ImGuiCol_Button));
             if (HoveredForHelp()) {
                 HarkenSearch::SetTooltip(L(Main_MoreSpectrumTip));
             }
@@ -50880,9 +50975,11 @@ void RenderUI(AppState& state) {
         const float labelWidth = ImGui::CalcTextSize(window->Name, nullptr, true).x + 16.0f;
         const ImRect label(title.Min, ImVec2(
             (std::min)(title.Min.x + labelWidth, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
+        const float infoActionsWidth = std::strcmp(moduleId, "info") == 0
+            ? 48.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-48.0f) : 0.0f;
         const ImRect dockDragLabel(title.Min, ImVec2(
-            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
-        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered());
+            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f - infoActionsWidth), title.Max.y));
+        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered() && dockDragLabel.Contains(ImGui::GetMousePos()));
 #if ARIS_PREVIEW_ISOLATION && AURA_BUILD_DIAGNOSTICS && !AURA_INTERNAL_BETA
         RecordDockQaPanel(moduleId, panel, pos, size, title, label);
 #endif
@@ -51169,6 +51266,7 @@ void RenderUI(AppState& state) {
             if (ImGuiViewport* vp = ImGui::GetWindowViewport()) {
                 aura::ui::dock::BindNativeCaptionModule(vp->PlatformHandle, "info");
             }
+            drawFloatingInfoTitleActions();
             driveFloatingDockDrag("info", state.panelFileInfo, pos, size);
 
             if (ImGui::BeginPopupContextItem("##FloatFileInfoMenu")) {
@@ -51357,7 +51455,7 @@ void RenderUI(AppState& state) {
                 const DockModuleShellLayout shell = drawDockModuleShell(
                     ImGui::GetWindowDrawList(), pos, size.x, size.y,
                     L(View_InfoPanel), bodyBg, kTitleText);
-                drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
                 ImGui::SetCursorPos(ImVec2(shell.insetL, shell.insetT));
                 ImGui::InvisibleButton("##DockedFileInfoTitleBar",
                     ImVec2((std::max)(1.0f, shell.shellWidth - kInfoTitleActionsWidth), shell.titleHeight));
@@ -52111,6 +52209,7 @@ void RenderUI(AppState& state) {
         const bool detachedInfoVisible = beginSharedDockWindowHost(
             L(Panel_FileInfoTitle), &state.fileInfoDetached, ImGuiWindowFlags_MenuBar);
         if (detachedInfoVisible) {
+            drawFloatingInfoTitleActions();
             if (ImGui::BeginMenuBar()) {
                 if (ImGui::BeginMenu(L(Menu_DockTo))) {
                     if (ImGui::MenuItem(L(Panel_DockToLeft))) {

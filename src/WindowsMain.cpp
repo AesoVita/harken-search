@@ -9,6 +9,7 @@
 #include "SpectrogramMath.h"
 #include "Theme.h"
 #include "ThemeInspector.h"
+#include "ui/TransportVisualAudit.h"
 #include "AnnotationBridge.h"
 #include "BackgroundIoPolicy.h"
 #include "BetaFeatureFlags.h"
@@ -4355,6 +4356,111 @@ static void PollQaCommandFile(AppState& state) {
         }
     } else if (cmd == aura::diagnostics::FrameBudgetDiagnostics::resultCommand()) {
         result = aura::diagnostics::FrameBudgetDiagnostics::shared().resultJson();
+    } else if (cmd == "transport_audit" || cmd == "transport_audit_setup") {
+        if (!MagicEqQaIsolationReady()) {
+            result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
+        } else if (cmd == "transport_audit") {
+            TransportVisualAudit::Request();
+            result = TransportVisualAudit::Json();
+        } else {
+            const std::string scenario = getStr(raw, "scenario");
+            if (scenario != "pass" && scenario != "bypass" && scenario != "notch" &&
+                scenario != "processing" && scenario != "mono" && scenario != "spectrum" &&
+                scenario != "overdrive" && scenario != "selection" && scenario != "wide") {
+                result = "{\"ok\":false,\"error\":\"invalid_transport_audit_scenario\"}";
+            } else {
+                state.audioEngine.stop();
+                state.settings.productMode = ProductMode::SFX;
+                state.audioEngine.setVolume(scenario == "overdrive" ? 1.10f : (scenario == "processing" ? .85f : .26f));
+                state.audioEngine.setMono(scenario == "mono");
+                state.audioEngine.setPan(scenario == "processing" ? .5f : 0);
+                state.audioEngine.setCenterSense(scenario == "processing" ? .6f : 0);
+                state.audioEngine.setBassMonoFreq(scenario == "processing" ? 80.f : 0.f);
+                state.audioEngine.setReverse(scenario == "processing");
+                state.audioEngine.setInPoint(scenario == "selection" ? .2f : 0.f);
+                state.audioEngine.setOutPoint(scenario == "selection" ? .8f : 1.f);
+                state.showSpectrogram = scenario == "spectrum";
+                state.spectrogramSplit = false;
+                state.spectrogramBlend = .5f;
+                MagicEQSettings eq = state.audioEngine.getMagicEQ();
+                eq.enabled = scenario != "bypass";
+                eq.mode = scenario == "notch" ? MagicEQMode::Notch : MagicEQMode::Pass;
+                eq.widgetWidth = scenario == "wide" ? 800 : 340;
+                eq.centerFreq = 1000; eq.halfWidthPercent = 30;
+                state.audioEngine.setMagicEQ(eq);
+                s_magicEqQaPointer.active = true; s_magicEqQaPointer.pending = true;
+                s_magicEqQaPointer.held = false; s_magicEqQaPointer.x = -10000; s_magicEqQaPointer.y = -10000;
+                TransportVisualAudit::Request();
+                result = "{\"ok\":true,\"cmd\":\"transport_audit_setup\"}";
+            }
+        }
+
+#if ARIS_PREVIEW_ISOLATION
+    } else if (cmd == "info_page_state" || cmd == "info_page_pointer" || cmd == "info_page_layout") {
+        // Real ImGui input, restricted to this compile-time isolated QA package.
+        // Never moves the operating-system cursor or targets another process.
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire)) {
+            result = R"({"ok":false,"error":"fixed_preview_isolation_required"})";
+        } else {
+            s_magicEqQaCollectUntilMs.store(Platform::MonotonicMilliseconds()+5000,std::memory_order_release);
+            const auto snapshot = ThemeInspector::CopyLatestSnapshot();
+            if (cmd == "info_page_layout") {
+                const int width = getInt(raw,"width",320);
+                if (width < 180 || width > 800 || s_magicEqQaPointer.held) {
+                    result = R"({"ok":false,"error":"invalid_info_layout"})";
+                } else {
+                    state.panelFileInfo.dockedWidth = static_cast<float>(width);
+                    state.panelFileInfo.floatW = static_cast<float>(width);
+                    state.panelFileInfo.floatH = 600;
+                    state.panelFileInfo.floatX = 100;
+                    state.panelFileInfo.floatY = 120;
+                    state.panelFileInfo.visible = true;
+                    state.panelFileInfo.floating = getBool(raw,"floating",false);
+                    result = R"({"ok":true})";
+                }
+            } else if (cmd == "info_page_pointer") {
+                static std::string heldKey;
+                const std::string key = getStr(raw,"key");
+                const std::string phase = getStr(raw,"phase");
+                const ThemeInspector::AnnotationZoneSnapshot* target = nullptr;
+                for (const auto& z : snapshot.zones) if (z.key==key && z.key.rfind("info.",0)==0) target=&z;
+                if (s_magicEqQaPointer.pending || !target || snapshot.frameNumber==0 ||
+                    snapshot.frameNumber+1 < static_cast<std::uint64_t>(ImGui::GetFrameCount()) ||
+                    (phase!="hover" && phase!="down" && phase!="up") ||
+                    ((phase=="hover" || phase=="down") && s_magicEqQaPointer.held) ||
+                    (phase=="up" && (!s_magicEqQaPointer.held || heldKey!=key))) {
+                    result = R"({"ok":false,"error":"invalid_info_pointer_transition"})";
+                } else {
+                    const float x=(target->minX+target->maxX)*.5f, y=(target->minY+target->maxY)*.5f;
+                    unsigned int viewport=ImGui::GetMainViewport()->ID;
+                    for (auto* v : ImGui::GetPlatformIO().Viewports)
+                        if (x>=v->Pos.x && x<v->Pos.x+v->Size.x && y>=v->Pos.y && y<v->Pos.y+v->Size.y) viewport=v->ID;
+                    s_magicEqQaPointer={true,phase!="hover",phase=="down",x,y,viewport};
+                    if (phase=="up") { s_magicEqQaPointer.held=false; heldKey.clear(); }
+                    if (phase=="down") heldKey=key;
+                    result = R"({"ok":true})";
+                }
+            } else {
+                const auto* infoWindow = ImGui::FindWindowByName("Info##FloatingFileInfo");
+                result="{\"ok\":true,\"selected\":"+std::to_string(state.settings.infoPages.selected)+
+                    ",\"visible_mask\":"+std::to_string(state.settings.infoPages.visibleMask)+
+                    ",\"floating\":"+(state.panelFileInfo.floating?"true":"false")+
+                    ",\"outer_scrollbar\":"+(infoWindow && infoWindow->ScrollbarY?"true":"false")+
+                    ",\"outer_scroll_max\":"+std::to_string(infoWindow?infoWindow->ScrollMax.y:0.0f)+
+                    ",\"frame\":"+std::to_string(snapshot.frameNumber)+",\"zones\":{";
+                bool first=true;
+                for (const auto& z:snapshot.zones) {
+                    if (z.key.rfind("info.",0)!=0) continue;
+                    if (!first) result+=",";
+                    first=false;
+                    result+="\""+jsonEscape(z.key)+"\":{\"x\":"+std::to_string(z.minX)+
+                        ",\"y\":"+std::to_string(z.minY)+",\"w\":"+std::to_string(z.maxX-z.minX)+
+                        ",\"h\":"+std::to_string(z.maxY-z.minY)+"}";
+                }
+                result+="}}";
+            }
+        }
+#endif
     } else if (cmd == "magic_eq_identity" || cmd == "magic_eq_state" ||
                cmd == "magic_eq_set_state" || cmd == "magic_eq_pointer") {
         // This channel exists only in a compile-time pinned QA build. An env
@@ -8221,20 +8327,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // 恢复到"普通大小"，丢失最大化状态。
             //
             // 策略：
-            //   iconic + 有 saved state → 什么都不做，让 SC_RESTORE 处理
-            //   iconic + 无 saved state → 普通恢复（兜底）
+            //   iconic → 不主动恢复，让任务栏的正常恢复消息处理原窗口状态
             //   非 iconic + 有 saved state → 二次保障（ShowManagerWindowNow
             //       已还原位置但还没最大化时可能触发 WM_ACTIVATE）
 
             if (IsIconic(hwnd)) {
-                // 窗口仍处于最小化：如果有保存状态，留给 SC_RESTORE 处理
-                if (!g_savedPlacementForDragHideValid && !g_savedPlacementForTrayMinimizeValid) {
-                    // 无保存状态——通用恢复
-                    (void)Platform::WindowShow(hwnd, SW_RESTORE);
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic generic restore");
-                } else {
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic but saved state exists, deferring to SC_RESTORE");
-                }
+                AppendDiagLogF(L"WM_ACTIVATE: iconic, deferring restore to Windows");
             } else {
                 // 非 iconic：作为二次保障应用保存状态
                 if (g_savedPlacementForDragHideValid) {
