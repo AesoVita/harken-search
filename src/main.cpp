@@ -39956,7 +39956,8 @@ void RenderUI(AppState& state) {
                                    float panelHeight,
                                    const char* title,
                                    const ImVec4& bodyBg,
-                                   ImU32 titleColor) {
+                                   ImU32 titleColor,
+                                   bool roundedContentEdge = false) {
         DockModuleShellLayout layout;
         layout.shellWidth = (std::max)(120.0f, panelWidth - layout.insetL - layout.insetR);
         layout.shellMin = ImVec2(winPos.x + layout.insetL, winPos.y + layout.insetT);
@@ -40006,11 +40007,21 @@ void RenderUI(AppState& state) {
             kFilterInfoShellRadius,
             contentRoundFlags);
         drawDockTitleBar(dl, layout.shellMin, layout.shellWidth, layout.titleHeight, title, titleColor, titleRoundFlags);
-        dl->AddLine(
-            ImVec2(layout.contentMin.x + 0.5f, layout.contentMin.y + 0.5f),
-            ImVec2(layout.contentMax.x - 0.5f, layout.contentMin.y + 0.5f),
-            ImGui::GetColorU32(workspacePalette.splitter),
-            aura::ui::workspace::kCoreWorkspaceMetrics.splitterWidth);
+        if (roundedContentEdge) {
+            dl->AddRect(
+                ImVec2(layout.contentMin.x + 0.5f, layout.contentMin.y + 0.5f),
+                ImVec2(layout.contentMax.x - 0.5f, layout.contentMax.y - 0.5f),
+                ImGui::GetColorU32(moduleEdge),
+                kFilterInfoShellRadius,
+                ImDrawFlags_RoundCornersAll,
+                aura::ui::workspace::kCoreWorkspaceMetrics.perimeterWidth);
+        } else {
+            dl->AddLine(
+                ImVec2(layout.contentMin.x + 0.5f, layout.contentMin.y + 0.5f),
+                ImVec2(layout.contentMax.x - 0.5f, layout.contentMin.y + 0.5f),
+                ImGui::GetColorU32(workspacePalette.splitter),
+                aura::ui::workspace::kCoreWorkspaceMetrics.splitterWidth);
+        }
         dl->AddRect(
             ImVec2(layout.shellMin.x + 0.5f, layout.shellMin.y + 0.5f),
             ImVec2(layout.shellMax.x - 0.5f, layout.shellMax.y - 0.5f),
@@ -51585,7 +51596,8 @@ void RenderUI(AppState& state) {
                     leaf.rect.height,
                     L(Similar_Title),
                     similarBody,
-                    kTitleText);
+                    kTitleText,
+                    state.settings.theme == AppTheme::LapisBlue);
                 ImGui::SetCursorPos(ImVec2(similarShell.insetL, similarShell.insetT));
                 ImGui::InvisibleButton("##DockedSimilarSoundsTitle",
                     ImVec2(similarShell.shellWidth, similarShell.titleHeight));
