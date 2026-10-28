@@ -1827,21 +1827,6 @@ if(Python3_Interpreter_FOUND)
         )
     endif()
 
-    add_custom_command(TARGET HarkenSearch POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:HarkenSearch>"
-            "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe"
-        COMMENT "Creating the legacy executable alias..."
-        VERBATIM
-    )
-
-    add_custom_command(TARGET HarkenSearch POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_sig.py"
-            "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe" "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe.sig"
-        COMMENT "Generating the legacy executable alias signature..."
-        VERBATIM
-    )
-
     if(ARIS_BOOTSTRAP_PACKAGE_KEY_ID AND ARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX)
         add_custom_command(TARGET HarkenSearch POST_BUILD
             COMMAND ${Python3_EXECUTABLE}
