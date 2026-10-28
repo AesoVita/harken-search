@@ -1888,7 +1888,7 @@ void TestFilteredCoverWallRetirementNarrowsLegacySearchFallbackContract() {
           databaseHeaderSource.find("not display truth or texture recovery") != std::string::npos,
           "BDD: DB cover-key compatibility bridge names are retired while replacement tile membership remains explicit");
     Check(source.find("getFileIdsForCoverPlaylistCompatibilityBridge") == std::string::npos &&
-          source.find("getFileIdsForCoverTileMembership(key)") != std::string::npos &&
+          source.find("getFileIdsForCoverTileMembership(tileIdentityKey)") != std::string::npos &&
           coverModuleSource.find("getFilePathsForCoverCompatibilityBridge(") == std::string::npos,
           "BDD: Production artwork drag/drop uses replacement tile membership; embedded recovery no longer uses file-path bridge");
     const std::string tileMembershipBody =
@@ -2807,7 +2807,8 @@ void TestGlobalCoverWallCompletenessCeilingAndDiagnosticsContract() {
           "BDD: Global cover-wall diagnostics no longer report a legacy hard window max");
     Check(mainSource.find("AppendUniqueCoverWallPageItems(cw.items, page.items)") != std::string::npos &&
           pageResultBuilderSource.find("BuildCoverWallVisualDedupeToken(") != std::string::npos &&
-          pageResultBuilderSource.find("seenTokens") != std::string::npos &&
+          pageResultBuilderSource.find("byToken") != std::string::npos &&
+          pageResultBuilderSource.find("byKey") != std::string::npos &&
           pageResultBuilderSource.find("AppendUniqueCoverWallPageItems(") != std::string::npos,
           "BDD: Global cover-wall page building keeps a visual dedupe token set so cross-page repeats can collapse");
     Check(renderBody.find("const bool blockGlobalStartLoadForPreload =") != std::string::npos &&

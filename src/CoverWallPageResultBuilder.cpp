@@ -4,6 +4,8 @@
 #include "PathUtils.h"
 
 #include <unordered_set>
+#include <unordered_map>
+#include <algorithm>
 
 namespace aura::cover_wall {
 
@@ -65,6 +67,7 @@ CoverModule::CoverItem ConvertCoverWallEntryToItem(const Database::CoverWallEntr
         item.folderCoverSrcPathUtf8 = entry.sourcePath;
         item.label = BaseNameFromUtf8Path(item.folderPathUtf8);
     }
+    item.wallMemberKeys.push_back(item.key);
     return item;
 }
 
@@ -83,22 +86,66 @@ std::string BuildCoverWallVisualDedupeToken(const CoverModule::CoverItem& item) 
 
 void AppendUniqueCoverWallPageItems(std::vector<CoverModule::CoverItem>& existing,
                                     std::vector<CoverModule::CoverItem>& nextPage) {
-    std::unordered_set<std::string> seenTokens;
-    std::unordered_set<std::string> seenKeys;
-    seenTokens.reserve(existing.size() + nextPage.size());
-    seenKeys.reserve(existing.size() + nextPage.size());
-    for (const auto& item : existing) {
-        seenTokens.insert(BuildCoverWallVisualDedupeToken(item));
-        seenKeys.insert(item.key);
-    }
+    std::unordered_map<std::string, size_t> byKey;
+    std::unordered_map<std::string, size_t> byToken;
+    byKey.reserve(existing.size() + nextPage.size());
+    byToken.reserve(existing.size() + nextPage.size());
+    std::vector<bool> removed(existing.size(), false);
+    auto indexItem = [&](size_t index) {
+        auto& item = existing[index];
+        if (item.wallMemberKeys.empty()) item.wallMemberKeys.push_back(item.key);
+        if (item.wallVisualTokens.empty())
+            item.wallVisualTokens.push_back(BuildCoverWallVisualDedupeToken(item));
+        for (const auto& key : item.wallMemberKeys) byKey[key] = index;
+        for (const auto& token : item.wallVisualTokens) byToken[token] = index;
+    };
+    for (size_t i = 0; i < existing.size(); ++i) indexItem(i);
     for (auto& item : nextPage) {
         const std::string token = BuildCoverWallVisualDedupeToken(item);
         if (item.key.empty() || token.empty()) continue;
-        const bool newKey = seenKeys.insert(item.key).second;
-        const bool newToken = seenTokens.insert(token).second;
-        if (newKey && newToken) {
-            existing.push_back(std::move(item));
+        if (item.wallMemberKeys.empty()) item.wallMemberKeys.push_back(item.key);
+        if (item.wallVisualTokens.empty()) item.wallVisualTokens.push_back(token);
+        std::unordered_set<size_t> matches;
+        for (const auto& key : item.wallMemberKeys) {
+            const auto it = byKey.find(key);
+            if (it != byKey.end()) matches.insert(it->second);
         }
+        for (const auto& visual : item.wallVisualTokens) {
+            const auto it = byToken.find(visual);
+            if (it != byToken.end()) matches.insert(it->second);
+        }
+        if (matches.empty()) {
+            existing.push_back(std::move(item));
+            removed.push_back(false);
+            indexItem(existing.size() - 1);
+            continue;
+        }
+        const size_t target = *std::min_element(matches.begin(), matches.end());
+        for (const size_t other : matches) {
+            if (other == target || removed[other]) continue;
+            auto& group = existing[target];
+            auto& merged = existing[other];
+            group.wallMemberKeys.insert(group.wallMemberKeys.end(),
+                                        merged.wallMemberKeys.begin(), merged.wallMemberKeys.end());
+            group.wallVisualTokens.insert(group.wallVisualTokens.end(),
+                                          merged.wallVisualTokens.begin(), merged.wallVisualTokens.end());
+            removed[other] = true;
+        }
+        auto& group = existing[target];
+        for (const auto& key : item.wallMemberKeys) {
+            if (byKey.find(key) == byKey.end()) group.wallMemberKeys.push_back(key);
+        }
+        for (const auto& visual : item.wallVisualTokens) {
+            if (byToken.find(visual) == byToken.end()) group.wallVisualTokens.push_back(visual);
+        }
+        indexItem(target);
+    }
+    if (std::find(removed.begin(), removed.end(), true) != removed.end()) {
+        size_t write = 0;
+        for (size_t read = 0; read < existing.size(); ++read) {
+            if (!removed[read]) existing[write++] = std::move(existing[read]);
+        }
+        existing.resize(write);
     }
 }
 

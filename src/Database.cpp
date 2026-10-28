@@ -11,6 +11,7 @@
 #include "BackfillWorkerPool.h"
 #include "BackgroundIoPolicy.h"
 #include "CoverModule.h"  // InvalidateCoverForPath clears stale UI artwork after a path change.
+#include "CoverWallSelectionKey.h"
 #include "CoverReplacementFoundation.h"
 #include "MetadataReader.h"
 #include "platform/database_audio_probe.h"
@@ -719,6 +720,49 @@ static bool TryExtractTemporaryFolderIdentityPath(const std::string& coverKey,
                                                   std::string* outCanonicalFolderPath);
 static bool TryExtractCanonicalFolderCoverSourcePath(const std::string& coverKey,
                                                      std::string* outCanonicalSourcePath);
+
+struct ExactCoverWallSelectionMembers {
+    std::vector<std::string> keys;
+    std::vector<std::string> temporaryFolders;
+};
+
+static bool ParseExactCoverWallSelection(const std::string& selection,
+                                         ExactCoverWallSelectionMembers& members) {
+    std::vector<std::string> encodedKeys;
+    if (!aura::cover_wall::DecodeCoverWallSelectionKey(selection, encodedKeys)) return false;
+    std::unordered_set<std::string> seenKeys;
+    std::unordered_set<std::string> seenFolders;
+    for (const auto& rawKey : encodedKeys) {
+        std::string folder;
+        if (TryExtractTemporaryFolderIdentityPath(rawKey, &folder)) {
+            if (seenFolders.insert(folder).second) members.temporaryFolders.push_back(std::move(folder));
+        } else {
+            const std::string key = CanonicalizeCoverLookupKey(rawKey);
+            if (!key.empty() && seenKeys.insert(key).second) members.keys.push_back(key);
+        }
+    }
+    return !members.keys.empty() || !members.temporaryFolders.empty();
+}
+
+static std::string CoverWallSelectionJsonArray(const std::vector<std::string>& values) {
+    static constexpr char hex[] = "0123456789abcdef";
+    std::string json = "[";
+    for (const auto& value : values) {
+        if (json.size() > 1) json += ',';
+        json += '"';
+        for (const unsigned char c : value) {
+            if (c == '"' || c == '\\') { json += '\\'; json += static_cast<char>(c); }
+            else if (c < 0x20) {
+                json += "\\u00";
+                json += hex[c >> 4];
+                json += hex[c & 15];
+            } else json += static_cast<char>(c);
+        }
+        json += '"';
+    }
+    json += ']';
+    return json;
+}
 
 static void AccumulateSemicolonFacetTokens(const std::string& rawValue,
                                            std::unordered_map<std::string, int>* counts) {
@@ -6144,6 +6188,26 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
 
 
     if (!filter.specificCoverKey.empty()) {
+        ExactCoverWallSelectionMembers exactMembers;
+        if (ParseExactCoverWallSelection(filter.specificCoverKey, exactMembers)) {
+            if (!exactMembers.keys.empty()) {
+                EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys);
+            }
+            // json_each keeps the number of SQL bind parameters fixed even
+            // when one visible tile represents thousands of legacy folders.
+            bq.coverKeySubquery =
+                "SELECT file_id FROM cover_tile_membership "
+                "WHERE tile_key IN (SELECT value FROM json_each(?)) "
+                "UNION SELECT id FROM audio_files "
+                "WHERE has_cover = 1 "
+                "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
+                "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
+                "AND lower(replace(folder_path, '/', '\\')) "
+                "IN (SELECT value FROM json_each(?))";
+            bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.keys));
+            bq.coverKeyBindValues.push_back(CoverWallSelectionJsonArray(exactMembers.temporaryFolders));
+            bq.coverKeyClauseKind = 3;
+        } else {
         // audio-library artwork identity: one visible artwork may represent
         // multiple embedded/folder keys. Resolve the visual cluster before filtering.
         // T2.2: 用户输入的 specificCoverKey 必须先过 CoverModule::CanonicalCoverKey,
@@ -6216,6 +6280,7 @@ Database::BuiltSearchQuery Database::buildSearchWhere(const SearchFilter& filter
                 for (const auto& key : equivalentKeys) bq.coverKeyBindValues.push_back(key);
                 bq.coverKeyClauseKind = 3;
             }
+        }
         }
     }
 
@@ -18526,6 +18591,30 @@ std::vector<Database::CoverWallEntry> Database::getGlobalCoverWallEntries() {
 std::vector<int64_t> Database::getFileIdsForCoverTileMembership(const std::string& tileIdentityKey) {
     std::vector<int64_t> out;
     if (!m_db || tileIdentityKey.empty()) return out;
+    ExactCoverWallSelectionMembers exactMembers;
+    if (ParseExactCoverWallSelection(tileIdentityKey, exactMembers)) {
+        if (!exactMembers.keys.empty()) {
+            EnsureCoverTileMembershipForKeys(m_db, exactMembers.keys, &out);
+        }
+        if (!exactMembers.temporaryFolders.empty()) {
+            const char* sql =
+                "SELECT id FROM audio_files WHERE has_cover = 1 "
+                "AND (embedded_cover_key IS NULL OR embedded_cover_key = '') "
+                "AND (folder_cover_key IS NULL OR folder_cover_key = '') "
+                "AND lower(replace(folder_path, '/', '\\')) "
+                "IN (SELECT value FROM json_each(?))";
+            sqlite3_stmt* stmt = nullptr;
+            if (sqlite3_prepare_v2(m_db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
+                const std::string paths = CoverWallSelectionJsonArray(exactMembers.temporaryFolders);
+                sqlite3_bind_text(stmt, 1, paths.c_str(), (int)paths.size(), SQLITE_TRANSIENT);
+                while (sqlite3_step(stmt) == SQLITE_ROW) out.push_back(sqlite3_column_int64(stmt, 0));
+            }
+            if (stmt) sqlite3_finalize(stmt);
+        }
+        std::sort(out.begin(), out.end());
+        out.erase(std::unique(out.begin(), out.end()), out.end());
+        return out;
+    }
     const std::string lookupKey = CanonicalizeCoverLookupKey(tileIdentityKey);
     std::string temporaryFolderPath;
     if (TryExtractTemporaryFolderIdentityPath(lookupKey, &temporaryFolderPath)) {

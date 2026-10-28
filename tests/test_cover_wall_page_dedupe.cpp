@@ -1,4 +1,5 @@
 #include "CoverWallPageResultBuilder.h"
+#include "CoverWallSelectionKey.h"
 
 #include <iostream>
 #include <filesystem>
@@ -55,7 +56,8 @@ int main() {
     const bool onePerSource = first.items.size() == 2 && first.hasMore &&
                               first.nextCursor == "fl2:123" &&
                               first.items[0].key == "?|C:/repeat/a" &&
-                              first.items[0].folderCoverSrcPathUtf8 == "C:/covers/shared.jpg";
+                              first.items[0].folderCoverSrcPathUtf8 == "C:/covers/shared.jpg" &&
+                              first.items[0].wallMemberKeys.size() == 2;
 
     nextPage.entries = {{"?|C:/repeat/c", "C:/repeat/c", "", false}};
     auto second = aura::cover_wall::LoadGlobalCoverWallPage("isolated.db", "fl2:123", 512);
@@ -85,9 +87,29 @@ int main() {
     }});
     aura::cover_wall::AppendUniqueCoverWallPageItems(sameKey.items, sameKeyNextPage.items);
     const bool sameKeyAcrossPagesCollapses = sameKey.items.size() == 1;
+    auto bridged = aura::cover_wall::BuildCoverWallPageLoadResult({{
+        {"F|H|bridge-a|123", "C:/a", "C:/covers/a.jpg", false},
+        {"F|H|bridge-b|123", "C:/b", "C:/covers/b.jpg", false},
+    }});
+    auto bridgePage = aura::cover_wall::BuildCoverWallPageLoadResult({{
+        {"F|H|bridge-a|123", "C:/c", "C:/covers/b.jpg", false},
+    }});
+    aura::cover_wall::AppendUniqueCoverWallPageItems(bridged.items, bridgePage.items);
+    const bool transitiveBridgeCollapsed = bridged.items.size() == 1 &&
+        bridged.items[0].wallMemberKeys.size() == 2;
     auto appended = first.items;
     aura::cover_wall::AppendUniqueCoverWallPageItems(appended, second.items);
-    const bool repeatedPageSkipped = appended.size() == 2;
+    const bool repeatedPageSkipped = appended.size() == 2 &&
+        appended[0].wallMemberKeys.size() == 3;
+    const std::string selection = aura::cover_wall::EncodeGroupedCoverWallKeys(
+        appended[0].wallMemberKeys);
+    std::vector<std::string> selectedKeys;
+    const bool allFoldersSelectable =
+        aura::cover_wall::DecodeCoverWallSelectionKey(selection, selectedKeys) &&
+        selectedKeys.size() == 3 &&
+        selectedKeys[0] == "?|C:/repeat/a" &&
+        selectedKeys[1] == "?|C:/repeat/b" &&
+        selectedKeys[2] == "?|C:/repeat/c";
     aura::cover_wall::AppendUniqueCoverWallPageItems(appended, distinct.items);
     const bool distinctPageAppended = appended.size() == 4;
 
@@ -98,6 +120,7 @@ int main() {
               << " distinct page appended=" << distinctPageAppended
               << " distinct files=" << distinctFilesRemain << '\n';
     return onePerSource && sameAcrossPages && mixedLegacyKeysCollapse &&
-           repeatedPageSkipped && distinctPageAppended && distinctFilesRemain &&
-           sameKeyAcrossSourcesCollapses && sameKeyAcrossPagesCollapses ? 0 : 1;
+           repeatedPageSkipped && allFoldersSelectable && distinctPageAppended && distinctFilesRemain &&
+           sameKeyAcrossSourcesCollapses && sameKeyAcrossPagesCollapses &&
+           transitiveBridgeCollapsed ? 0 : 1;
 }

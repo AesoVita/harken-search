@@ -4,6 +4,7 @@
 #include "Database.h"
 #include "AudioEngine.h"
 #include "CoverModule.h"
+#include "CoverWallSelectionKey.h"
 #include "PathUtils.h"
 #include "SimilaritySearch.h"
 #include "Utils.h"
@@ -2747,6 +2748,66 @@ int testTemporaryCoverIdentityReverseLookupMatchesCoverFilter() {
     return failures;
 }
 
+int testCoverWallGroupedSelectionIncludesAllFoldersWithoutFuzzyNeighbors() {
+    printSeparator("Test: grouped cover wall selection uses exact member identities");
+    const std::string dbPath = "test_cover_wall_grouped_selection.db";
+    removeDbFamily(dbPath);
+    Database db;
+    if (!db.open(dbPath)) return 1;
+    const std::string keyA = CoverModule::CanonicalCoverKey("F|PATH|C:/covers/shared.jpg");
+    const std::string keyB = CoverModule::CanonicalCoverKey("F|PATH|C:/covers/near.jpg");
+    int failures = 0;
+    auto add = [&](const std::string& folder, const std::string& name, const std::string& key) {
+        AudioRecord r;
+        r.filePath = folder + "/" + name;
+        r.fileName = name;
+        r.folderPath = folder;
+        r.extension = ".wav";
+        r.format = "WAV";
+        r.channels = 2;
+        r.sampleRate = 48000;
+        r.bitDepth = 24;
+        r.durationSeconds = 1.0f;
+        r.fileSize = 1024;
+        r.totalFrames = 48000;
+        r.hasCover = true;
+        r.folderCoverKey = key;
+        if (!key.empty()) r.folderCoverSrcPath = key.substr(7);
+        if (!db.addFile(r)) ++failures;
+    };
+    add("C:/lib/wall-group/a", "a.wav", "");
+    add("C:/lib/wall-group/b", "b.wav", "");
+    add("C:/lib/wall-group/c", "c.wav", keyA);
+    add("C:/lib/wall-group/d", "d.wav", keyB);
+    std::ostringstream registrySql;
+    registrySql << "INSERT OR REPLACE INTO cover_cache_registry "
+        "(cover_key, rep_path, is_embedded, normalized_key, cover_phash, cover_phash_version) VALUES "
+        "('" << keyA << "', 'C:/lib/wall-group/c', 0, 'PHASH|12345', 12345, 2), "
+        "('" << keyB << "', 'C:/lib/wall-group/d', 0, 'PHASH|12345', 12345, 2);";
+    if (sqlite3_exec(db.db(), registrySql.str().c_str(), nullptr, nullptr, nullptr) != SQLITE_OK) ++failures;
+    const std::string group = aura::cover_wall::EncodeGroupedCoverWallKeys({
+        "?|C:/lib/wall-group/a", "?|C:/lib/wall-group/b", keyA});
+    std::vector<std::string> decoded;
+    if (!aura::cover_wall::DecodeCoverWallSelectionKey(group, decoded) || decoded.size() != 3) ++failures;
+    const auto ids = db.getFileIdsForCoverTileMembership(group);
+    SearchFilter filter;
+    filter.specificCoverKey = group;
+    const auto groupCount = db.searchFilesCount(filter);
+    const auto groupRows = db.searchFiles(filter, 10, 0).size();
+    std::cout << "group ids=" << ids.size() << " count=" << groupCount
+              << " rows=" << groupRows << '\n';
+    if (ids.size() != 3 || groupCount != 3 || groupRows != 3) ++failures;
+    const std::string exact = aura::cover_wall::EncodeExactCoverWallKey(keyA);
+    filter.specificCoverKey = exact;
+    const auto exactIds = db.getFileIdsForCoverTileMembership(exact).size();
+    const auto exactCount = db.searchFilesCount(filter);
+    std::cout << "exact ids=" << exactIds << " count=" << exactCount << '\n';
+    if (exactIds != 1 || exactCount != 1) ++failures;
+    db.close();
+    removeDbFamily(dbPath);
+    return failures;
+}
+
 int testCoverTileMembershipUsesEquivalentRegistryKeys() {
     printSeparator("Test: cover tile membership uses equivalent registry keys");
 
@@ -5191,6 +5252,7 @@ int main(int argc, char* argv[]) {
         std::free(focusedCaseRaw);
         if (focused == "cover_tile_membership") {
             int focusedFailures = 0;
+            focusedFailures += testCoverWallGroupedSelectionIncludesAllFoldersWithoutFuzzyNeighbors();
             focusedFailures += testTemporaryCoverIdentityReverseLookupMatchesCoverFilter();
             focusedFailures += testCoverTileMembershipUsesEquivalentRegistryKeys();
             focusedFailures += testCoverClickPhashLookupPreservesHammingTwoCluster();
