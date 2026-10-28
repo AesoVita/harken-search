@@ -11,8 +11,43 @@ import os
 from pathlib import Path
 import subprocess
 import time
+import uuid
+import wave
 
-from qa_transport_themes import Driver, synthetic_audio
+
+class Driver:
+    def __init__(self, runtime, output):
+        self.runtime, self.output = runtime, output
+
+    def command(self, payload, timeout=25):
+        request = dict(payload, request_id=uuid.uuid4().hex)
+        target = self.runtime / 'qa_cmd.json'
+        if target.exists():
+            raise RuntimeError('Another command is pending in this isolation root')
+        temporary = target.with_suffix('.tmp')
+        temporary.write_text(json.dumps(request), encoding='utf-8')
+        temporary.replace(target)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                result = json.loads((self.runtime / 'qa_result.json').read_text(encoding='utf-8'))
+                if result.get('request_id') == request['request_id']:
+                    with (self.output / 'commands.jsonl').open('a', encoding='utf-8') as log:
+                        log.write(json.dumps({'request': request, 'result': result}) + chr(10))
+                    if not result.get('ok'):
+                        raise RuntimeError(result)
+                    return result
+            except (FileNotFoundError, PermissionError, json.JSONDecodeError):
+                pass
+            time.sleep(.04)
+        raise TimeoutError(payload)
+
+
+def synthetic_audio(path):
+    if not path.exists():
+        with wave.open(str(path), 'wb') as audio:
+            audio.setparams((2, 2, 48000, 0, 'NONE', 'not compressed'))
+            audio.writeframes(bytes(48000 * 4 * 8))
 
 
 def run(args):
