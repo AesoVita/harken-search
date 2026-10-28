@@ -16,6 +16,22 @@ Windows desktop application for audio library browsing, search, preview, metadat
 - 与当前任务无关的迁移资料、历史卡片、本地流程状态、缓存、个人配置、AI/agent 运行产物不进入 PR。
 - 共享规则以 [CONTRIBUTING.md](CONTRIBUTING.md) 为准；不确定某个文件该不该提交时，默认先不要提交。
 
+## PR 与 QA 自动化
+
+- 向 `main` 或 `qa/current` 提交 PR 时，运行公开检查与 Windows 构建测试。
+- 完成审查和验收后，由维护者添加 `auto-merge-ok` 标签，才会排队自动合并；目标分支的远端保护规则缺失时会拒绝排队。
+- 本地复验入口：`python tools/run_public_checks.py`。本地完整检查需要 Windows PowerShell、Git、Python 及 `requirements-ci.txt` 中的依赖。`qa/current` 的 QA EXE 使用触发该次运行的提交，并在产物名称中标明该提交号。
+
+### 卡目录收尾
+
+先由任务负责人核对任务已完成并归档，再对单张卡目录运行预检：
+
+```powershell
+python tools/remove_card_directory.py --workspace-root "<absolute-parent>" --card-name "<card-directory>" --card-prefix "<card-prefix>" --main-repository "<absolute-main-repository>" --repository xindong/harken-search --integration-ref qa/current --dry-run
+```
+
+预检会刷新远端集成分支，拒绝链接、错误仓库、关联的其他 Git worktree、未保存或被 Git 忽略的文件（包括构建与测试产物）、隐藏修改的索引标记、stash，以及未合入的本地分支或标签。核对输出的目标与完整 HEAD 后，使用同一组参数，将 `--dry-run` 换成 `--execute --expected-head <HEAD>` 才会删除。脚本只处理指定目录；已有清理锁须人工核验，执行期间不要再向该目录写入文件。
+
 ## Build
 
 Windows quick build / packaging guide:

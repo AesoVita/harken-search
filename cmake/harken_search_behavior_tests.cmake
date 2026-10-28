@@ -5400,6 +5400,24 @@ endif()
 
 # dB-norm helper for Wwise-style RMS silhouette rendering (pure math, no deps).
 
+add_executable(TestCoverWallPageDedupe EXCLUDE_FROM_ALL
+    tests/test_cover_wall_page_dedupe.cpp
+    src/CoverWallPageResultBuilder.cpp
+    src/PathUtils.cpp
+)
+target_include_directories(TestCoverWallPageDedupe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
+    ${SQLITE_DIR}
+    ${IMGUI_DIR}
+)
+target_compile_features(TestCoverWallPageDedupe PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestCoverWallPageDedupe PRIVATE /utf-8)
+endif()
+add_test(NAME CoverWallPageDedupe COMMAND TestCoverWallPageDedupe)
+aura_set_test_labels(CoverWallPageDedupe db)
+
 add_executable(TestDatabaseFeatures EXCLUDE_FROM_ALL
     tests/test_database_features.cpp
     tests/test_database_link_stubs.cpp
@@ -6068,6 +6086,20 @@ aura_set_test_labels(TestDatabaseNavNonblockingContract core)
 
 # F-033 Phase 0 QA: DB schema migration + TagVocabularyMapper unit tests
 
+
+add_executable(TestTransportContrast EXCLUDE_FROM_ALL tests/test_transport_contrast.cpp)
+target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
+aura_set_test_labels(TestTransportContrast ui)
+add_test(NAME TestTransportThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_transport_theme_audit.py)
+aura_set_test_labels(TestTransportThemeAudit ui)
+add_executable(TestTransportBlendInput EXCLUDE_FROM_ALL tests/test_transport_blend_input.cpp
+    ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp
+    ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp)
+target_include_directories(TestTransportBlendInput PRIVATE src ${IMGUI_DIR})
+add_test(NAME TestTransportBlendInput COMMAND TestTransportBlendInput)
+aura_set_test_labels(TestTransportBlendInput ui)
 
 add_executable(TestThemeColors EXCLUDE_FROM_ALL
     tests/test_theme_colors.cpp
@@ -8152,6 +8184,17 @@ if(WIN32)
         target_link_libraries(${_system_target} PRIVATE advapi32 crypt32 shell32 ole32 comdlg32 shlwapi)
     endforeach()
 endif()
+
+add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
+    thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
+    thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)
+target_include_directories(TestInfoArtworkFooterLayout PRIVATE src thirdparty/imgui)
+add_test(NAME InfoArtworkFooterLayout COMMAND TestInfoArtworkFooterLayout)
+aura_set_test_labels(InfoArtworkFooterLayout ui info)
+target_include_directories(TestInfoPageNavigation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME InfoPageNavigation COMMAND TestInfoPageNavigation)
+aura_set_test_labels(InfoPageNavigation ui info)
 
 foreach(_standalone_localized_target IN ITEMS
     TestMetadataWriterImageLoad TestShortcutPresets TestTransferEmbed TestConsentManager)
