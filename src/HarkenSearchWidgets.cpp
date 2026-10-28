@@ -4,6 +4,7 @@
 #include "HarkenSearchMetrics.h"
 #include "HarkenSearchIcons.h"
 #include "Theme.h"
+#include "ui/TransportContrast.h"
 #include "SettingsSearchHighlightSpans.h"
 #include "imgui.h"
 #include "imgui_internal.h"
@@ -239,7 +240,11 @@ ButtonPalette ResolvePalette(ButtonVariant v) {
             p.bg       = ImGui::ColorConvertFloat4ToU32(th.searchButtonBG);
             p.bgHover  = LerpPack(th.searchButtonBG, white, 0.08f);
             p.bgActive = LerpPack(th.searchButtonBG, white, -0.08f);
-            p.text     = IM_COL32_WHITE;
+            p.text     = ImGui::ColorConvertFloat4ToU32(
+                TransportContrast::Ratio(white, th.searchButtonBG) >= 4.5
+                    ? white
+                    : TransportContrast::ForSurface(
+                        th.interfaceText, th.searchButtonBG, 7.0));
             break;
         case ButtonVariant::PrimaryTransfer:
             p.bg       = ImGui::ColorConvertFloat4ToU32(th.transferButtonBG);

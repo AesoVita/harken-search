@@ -2655,7 +2655,11 @@ struct AppState {
     }();
     PanelState panelWaveform;
     PanelState panelDatabase;
-    PanelState panelSimilarSounds;
+    PanelState panelSimilarSounds = [] {
+        PanelState panel;
+        panel.floatW = 640.0f;
+        return panel;
+    }();
     PanelState panelUCSBrowser = [] {
         PanelState panel;
         panel.visible = false;

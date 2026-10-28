@@ -10,6 +10,7 @@
 #include "Theme.h"
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
+#include "ui/EmptyStateVisualAudit.h"
 #include "AnnotationBridge.h"
 #include "BackgroundIoPolicy.h"
 #include "BetaFeatureFlags.h"
@@ -4360,6 +4361,13 @@ static void PollQaCommandFile(AppState& state) {
         }
     } else if (cmd == aura::diagnostics::FrameBudgetDiagnostics::resultCommand()) {
         result = aura::diagnostics::FrameBudgetDiagnostics::shared().resultJson();
+    } else if (cmd == "empty_state_audit") {
+        if (!MagicEqQaIsolationReady()) {
+            result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
+        } else {
+            EmptyStateVisualAudit::Request();
+            result = EmptyStateVisualAudit::Json();
+        }
     } else if (cmd == "transport_audit" || cmd == "transport_audit_setup") {
         if (!MagicEqQaIsolationReady()) {
             result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
@@ -4370,12 +4378,13 @@ static void PollQaCommandFile(AppState& state) {
             const std::string scenario = getStr(raw, "scenario");
             if (scenario != "pass" && scenario != "bypass" && scenario != "notch" &&
                 scenario != "processing" && scenario != "mono" && scenario != "spectrum" &&
-                scenario != "overdrive" && scenario != "selection" && scenario != "wide") {
+                scenario != "overdrive" && scenario != "fill-boundary" && scenario != "selection" && scenario != "wide") {
                 result = "{\"ok\":false,\"error\":\"invalid_transport_audit_scenario\"}";
             } else {
                 state.audioEngine.stop();
                 state.settings.productMode = ProductMode::SFX;
-                state.audioEngine.setVolume(scenario == "overdrive" ? 1.10f : (scenario == "processing" ? .85f : .26f));
+                state.audioEngine.setVolume(scenario == "overdrive" ? 1.07f :
+                    (scenario == "fill-boundary" ? .55f : (scenario == "processing" ? .85f : .26f)));
                 state.audioEngine.setMono(scenario == "mono");
                 state.audioEngine.setPan(scenario == "processing" ? .5f : 0);
                 state.audioEngine.setCenterSense(scenario == "processing" ? .6f : 0);

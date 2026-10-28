@@ -7,6 +7,7 @@
 #include "Theme.h"
 #include "TransientScrollbarHost.h"
 #include "ui/CoreWorkspaceStyle.h"
+#include "ui/TransportContrast.h"
 
 #include "imgui.h"
 
@@ -140,12 +141,15 @@ int PushFileInfoShellStyle(const ThemeColorScheme& tcs) {
     ImGui::PushStyleColor(ImGuiCol_WindowBg,             infoPanelBg);
     ImGui::PushStyleColor(ImGuiCol_ChildBg,              infoPanelBg);
     ImGui::PushStyleColor(ImGuiCol_Text,                 tcs.metadataPanelText);
+    const ImVec4 muted = ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled);
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, ThemeColors::customized() ? muted :
+        TransportContrast::ForSurface(muted, infoPanelBg, 6.0));
     ImGui::PushStyleColor(ImGuiCol_Border,               infoPanelBorder);
     aura::ui::workspace::PushTransientScrollbarColors(
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.40f),
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.60f),
         ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.80f));
-    return 8;
+    return 9;
 }
 
 
