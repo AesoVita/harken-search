@@ -1009,9 +1009,13 @@ class Stage6PlatformBoundaryContract(unittest.TestCase):
         self.assertIn("return false;", macos)
         self.assertIn("Platform::WindowShow(g_hwnd, SW_SHOW)", source)
         self.assertIn("Platform::WindowShow(g_hwnd, restoreCmd)", source)
-        self.assertIn("Platform::WindowShow(hwnd, SW_RESTORE)", source)
         self.assertIn("Platform::WindowShow(hwnd, SW_SHOWMAXIMIZED)", source)
         self.assertNotIn("ShowWindow(", source)
+
+    def test_taskbar_activation_leaves_minimized_window_restoration_to_windows(self) -> None:
+        source = (ROOT / "src" / "WindowsMain.cpp").read_text(encoding="utf-8")
+        activation = source.split("case WM_ACTIVATE:", 1)[1].split("case WM_CLOSE:", 1)[0]
+        self.assertNotIn("Platform::WindowShow(hwnd, SW_RESTORE)", activation)
 
     def test_windows_main_last_error_uses_system_pal(self) -> None:
         header = (ROOT / "src" / "platform" / "system.h").read_text(encoding="utf-8")

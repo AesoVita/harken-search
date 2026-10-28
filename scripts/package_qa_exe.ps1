@@ -273,7 +273,7 @@ try {
         $runtimeFileAllowlist = @(
             "HarkenSearch.exe", "HarkenSearch.exe.sig", "HarkenSearchBootstrap.exe",
             "HarkenSearchBootstrap.exe.sig", "harken-runtime-pair.json",
-            "Auro.exe", "Auro.exe.sig", "HarkenSearchProToolsBridge.exe",
+            "HarkenSearchProToolsBridge.exe",
             "WebView2Loader.dll", "reaper_harken.dll", "lucide.ttf",
             "splash_beta.png", "harken_thesaurus.json", "LICENSE",
             "THIRD_PARTY_NOTICES.md", "ASSET_PROVENANCE.md",

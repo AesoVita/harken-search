@@ -128,7 +128,9 @@ def audit_captures(output, report):
             ("similar-sounds", "文件名称或空态文字", (73, 48, 240, 66)),
             ("similar-sounds", "查找按钮（禁用）" if row["scenario"] == "empty" else "查找按钮",
              (162, 77, 240, 99) if narrow else (537, 45, 620, 67)),
-            ("info", "Info 空态提示", (20, 76, 165, 92)),
+            # Info navigation now lives in the title bar; the artwork message
+            # starts directly inside the content, without the former tab row.
+            ("info", "Info 空态提示", (20, 50, 165, 68)),
         ]
         for module, label, bounds in samples:
             source_path = Path(row["crops"][module]["path"])

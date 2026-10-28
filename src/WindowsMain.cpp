@@ -41,6 +41,7 @@
 #endif
 
 #include "AppState.h"
+#include "FileInfoPanel.h"
 #include "Version.h"
 #include "RelinkWorkflow.h"
 #include "update/HarkenSearchUpdateComposition.h"
@@ -60,6 +61,7 @@
 #include "UiHostServices.h"
 #include "platform/platform.h"
 #include "DiagnosticFileLifecycle.h"
+#include "ScanDatabaseOpenDiagnostics.h"
 
 // Legacy compatibility identifier: Auro.AudioFile.
 static constexpr const char* kLegacyAuroAudioFileAssociation = "Auro.AudioFile";
@@ -1380,6 +1382,9 @@ bool g_showManagerHotkeyRegisterOk = true;
 // 登录阶段：用于拦截 WM_CLOSE，避免被最小化/提示逻辑吞掉
 static bool g_loginPhaseActive = false;
 static std::atomic<bool> g_explicitExitRequested{ false };
+#if AURA_BUILD_DIAGNOSTICS && ARIS_PREVIEW_ISOLATION && !AURA_INTERNAL_BETA
+static std::atomic<bool> s_qaUpdateExitRequested{ false };
+#endif
 static NOTIFYICONDATAW g_trayNid = {};
 static bool g_trayIconAdded = false;
 static const UINT TRAY_CMD_TOGGLE_SHOW = 0x1101;
@@ -3104,11 +3109,15 @@ static bool BeginFolderScan(
         Database scanDb;
         const bool scanDbOpen = !scanDbPath.empty() && scanDb.open(scanDbPath);
         if (!scanDbOpen) {
+            const std::string err = scanDb.getLastError().empty()
+                ? std::string("open scan database failed")
+                : scanDb.getLastError();
+            DIAG_SYSTEM("Scan", aura::FormatScanDatabaseOpenFailure(scanDbPath, err, foldersToScan).c_str());
             if (state.isScanTaskCurrent(scanGeneration)) {
-                const std::string err = scanDb.getLastError();
+                const std::string shownErr = err;
                 state.setScanFileKeyStr(LStr::SCAN_FailedFmt,  // H2b: keyed; arg stays literal-diagnostic
-                    err.empty() ? std::string("open scan database failed") : err);
-                state.addScanError(err.empty() ? std::string("open scan database failed") : err);
+                    shownErr);
+                state.addScanError(shownErr);
                 state.scanErrorCount = 1;
                 state.scanFatalFailure.store(true, std::memory_order_release);
             }
@@ -4398,6 +4407,97 @@ static void PollQaCommandFile(AppState& state) {
                 result = "{\"ok\":true,\"cmd\":\"transport_audit_setup\"}";
             }
         }
+
+#if ARIS_PREVIEW_ISOLATION
+    } else if (cmd == "info_page_state" || cmd == "info_page_pointer" || cmd == "info_page_layout" || cmd == "info_edit_input") {
+        // Real ImGui input, restricted to this compile-time isolated QA package.
+        // Never moves the operating-system cursor or targets another process.
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire)) {
+            result = R"({"ok":false,"error":"fixed_preview_isolation_required"})";
+        } else {
+            s_magicEqQaCollectUntilMs.store(Platform::MonotonicMilliseconds()+5000,std::memory_order_release);
+            const auto snapshot = ThemeInspector::CopyLatestSnapshot();
+            if (cmd == "info_edit_input") {
+                if (getStr(raw,"action")=="exit") { state.settings.closeButtonAction=2; PostMessageW(g_hwnd,WM_CLOSE,0,0); }
+                else if (getStr(raw,"action")=="tray_exit") {
+                    ShowWindow(g_hwnd,SW_MINIMIZE);
+                    RequestHarkenSearchExit(g_hwnd,L"qa-tray-exit");
+                }
+                else if (getStr(raw,"action")=="update_exit")
+                    s_qaUpdateExitRequested.store(true,std::memory_order_release);
+                else if (getStr(raw,"action")=="new_db_dialog") state.showNewDbDialog=true;
+                else if (getStr(raw,"action")=="new_db_name") state.qaNewDbName=getStr(raw,"text");
+                else if (getStr(raw,"action")=="new_db_create") state.qaCreateNewDbNow=true;
+                else if (getStr(raw,"action")=="escape_down") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,true);
+                else if (getStr(raw,"action")=="escape_up") ImGui::GetIO().AddKeyEvent(ImGuiKey_Escape,false);
+                else ImGui::GetIO().AddInputCharactersUTF8(getStr(raw,"text").c_str());
+                result=R"({"ok":true})";
+            } else if (cmd == "info_page_layout") {
+                const int width = getInt(raw,"width",320);
+                if (width < 180 || width > 800 || s_magicEqQaPointer.held) {
+                    result = R"({"ok":false,"error":"invalid_info_layout"})";
+                } else {
+                    state.panelFileInfo.dockedWidth = static_cast<float>(width);
+                    state.panelFileInfo.floatW = static_cast<float>(width);
+                    state.panelFileInfo.floatH = 600;
+                    state.panelFileInfo.floatX = 100;
+                    state.panelFileInfo.floatY = 120;
+                    state.panelFileInfo.visible = true;
+                    state.panelFileInfo.floating = getBool(raw,"floating",false);
+                    result = R"({"ok":true})";
+                }
+            } else if (cmd == "info_page_pointer") {
+                static std::string heldKey;
+                const std::string key = getStr(raw,"key");
+                const std::string phase = getStr(raw,"phase");
+                const ThemeInspector::AnnotationZoneSnapshot* target = nullptr;
+                for (const auto& z : snapshot.zones) if (z.key==key && z.key.rfind("info.",0)==0) target=&z;
+                if (s_magicEqQaPointer.pending || !target || snapshot.frameNumber==0 ||
+                    snapshot.frameNumber+1 < static_cast<std::uint64_t>(ImGui::GetFrameCount()) ||
+                    (phase!="hover" && phase!="down" && phase!="up") ||
+                    ((phase=="hover" || phase=="down") && s_magicEqQaPointer.held) ||
+                    (phase=="up" && (!s_magicEqQaPointer.held || heldKey!=key))) {
+                    result = R"({"ok":false,"error":"invalid_info_pointer_transition"})";
+                } else {
+                    const float x=(target->minX+target->maxX)*.5f, y=(target->minY+target->maxY)*.5f;
+                    unsigned int viewport=ImGui::GetMainViewport()->ID;
+                    for (auto* v : ImGui::GetPlatformIO().Viewports)
+                        if (x>=v->Pos.x && x<v->Pos.x+v->Size.x && y>=v->Pos.y && y<v->Pos.y+v->Size.y) viewport=v->ID;
+                    s_magicEqQaPointer={true,phase!="hover",phase=="down",x,y,viewport};
+                    if (phase=="up") { s_magicEqQaPointer.held=false; heldKey.clear(); }
+                    if (phase=="down") heldKey=key;
+                    result = R"({"ok":true})";
+                }
+            } else {
+                const auto* infoWindow = ImGui::FindWindowByName("Info##FloatingFileInfo");
+                const auto editedRecord=state.metadataEditFileId>0?state.database.getFileById(state.metadataEditFileId):AudioRecord{};
+                result="{\"ok\":true,\"selected\":"+std::to_string(state.settings.infoPages.selected)+
+                    ",\"editing\":"+(state.infoEditSession.active?"true":"false")+
+                    ",\"awaiting_save\":"+(state.infoEditSession.awaitingChoice?"true":"false")+
+                    ",\"edit_id\":"+std::to_string(state.metadataEditFileId)+
+                    ",\"window_iconic\":"+(IsIconic(g_hwnd)?"true":"false")+
+                    ",\"visible\":"+(state.panelFileInfo.visible?"true":"false")+
+                    ",\"saved_description\":\""+jsonEscape(editedRecord.description)+"\""+
+                    ",\"draft_description\":\""+jsonEscape(state.metadataDescBuffer)+"\""+
+                    ",\"save_error\":\""+jsonEscape(state.infoEditError)+"\""+
+                    ",\"visible_mask\":"+std::to_string(state.settings.infoPages.visibleMask)+
+                    ",\"floating\":"+(state.panelFileInfo.floating?"true":"false")+
+                    ",\"outer_scrollbar\":"+(infoWindow && infoWindow->ScrollbarY?"true":"false")+
+                    ",\"outer_scroll_max\":"+std::to_string(infoWindow?infoWindow->ScrollMax.y:0.0f)+
+                    ",\"frame\":"+std::to_string(snapshot.frameNumber)+",\"zones\":{";
+                bool first=true;
+                for (const auto& z:snapshot.zones) {
+                    if (z.key.rfind("info.",0)!=0) continue;
+                    if (!first) result+=",";
+                    first=false;
+                    result+="\""+jsonEscape(z.key)+"\":{\"x\":"+std::to_string(z.minX)+
+                        ",\"y\":"+std::to_string(z.minY)+",\"w\":"+std::to_string(z.maxX-z.minX)+
+                        ",\"h\":"+std::to_string(z.maxY-z.minY)+"}";
+                }
+                result+="}}";
+            }
+        }
+#endif
     } else if (cmd == "magic_eq_identity" || cmd == "magic_eq_state" ||
                cmd == "magic_eq_set_state" || cmd == "magic_eq_pointer") {
         // This channel exists only in a compile-time pinned QA build. An env
@@ -6046,6 +6146,30 @@ static void PollQaCommandFile(AppState& state) {
                    + ",\"path\":\"" + jsonEscape(path) + "\"}";
         }
 
+    } else if (cmd == "folder_shortcut") {
+#if ARIS_PREVIEW_ISOLATION
+        // Exercise the same bookmark and navigation handlers as the UI,
+        // without injecting input into the user's desktop.
+        extern bool AddBrowserFolderToQuickPaths(AppState&, const std::string&);
+        extern void OpenFolderShortcut(AppState&, const FolderShortcut&);
+        const std::string path = getStr(raw, "bookmark_path");
+        const int index = getInt(raw, "open_index", -1);
+        if (!MagicEqQaIsolationReady() || !s_mainUiReady.load(std::memory_order_acquire) ||
+            (!path.empty() && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(path)) ||
+            index < -1 || index >= static_cast<int>(state.folderShortcuts.size()) ||
+            (index >= 0 && !Platform::HarkenUserData::PreviewIsolationAllowsDataPathUtf8(state.folderShortcuts[index].path))) {
+            result = R"({"ok":false,"error":"isolated_shortcut_required"})";
+        } else {
+            if (!path.empty()) AddBrowserFolderToQuickPaths(state, path);
+            if (index >= 0) OpenFolderShortcut(state, state.folderShortcuts[index]);
+            result = "{\"ok\":true,\"mode\":\"" + std::string(viewModeToString(state.viewMode)) +
+                "\",\"browser_path\":\"" + jsonEscape(state.fileBrowser.getCurrentPath()) +
+                "\",\"entries\":" + std::to_string(state.fileBrowser.activeEntries().size()) +
+                ",\"shortcut_count\":" + std::to_string(state.folderShortcuts.size()) + "}";
+        }
+#else
+        result = R"({"ok":false,"error":"preview_isolation_disabled"})";
+#endif
     } else if (cmd == "set_view_mode") {
         std::string mode = getStr(raw, "mode");
         std::transform(mode.begin(), mode.end(), mode.begin(), ::tolower);
@@ -7321,6 +7445,16 @@ void RemoveTrayIconIfAny(HWND hwnd) {
 }
 
 void RequestHarkenSearchExit(HWND hwnd, const wchar_t* reason) {
+    if (g_appState && RequestInfoMetadataLeave(*g_appState,[hwnd] {
+        RequestHarkenSearchExit(hwnd,L"metadata-save-confirmed");
+    })) {
+        // A tray exit can arrive while the main window is minimized. The
+        // confirmation needs a visible frame before shutdown can continue.
+        if (hwnd && Platform::WindowIsValid(hwnd) &&
+            (IsIconic(hwnd) || !Platform::WindowIsVisible(hwnd)))
+            ShowManagerWindowNow();
+        return;
+    }
     static constexpr int kExitSettingsSaveAttempts = 3;
     g_explicitExitRequested.store(true, std::memory_order_release);
     AppendDiagLogF(L"ExitRequested: reason=%s hwnd=%p", reason ? reason : L"(unknown)", (void*)hwnd);
@@ -8240,20 +8374,12 @@ LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             // 恢复到"普通大小"，丢失最大化状态。
             //
             // 策略：
-            //   iconic + 有 saved state → 什么都不做，让 SC_RESTORE 处理
-            //   iconic + 无 saved state → 普通恢复（兜底）
+            //   iconic → 不主动恢复，让任务栏的正常恢复消息处理原窗口状态
             //   非 iconic + 有 saved state → 二次保障（ShowManagerWindowNow
             //       已还原位置但还没最大化时可能触发 WM_ACTIVATE）
 
             if (IsIconic(hwnd)) {
-                // 窗口仍处于最小化：如果有保存状态，留给 SC_RESTORE 处理
-                if (!g_savedPlacementForDragHideValid && !g_savedPlacementForTrayMinimizeValid) {
-                    // 无保存状态——通用恢复
-                    (void)Platform::WindowShow(hwnd, SW_RESTORE);
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic generic restore");
-                } else {
-                    AppendDiagLogF(L"WM_ACTIVATE: iconic but saved state exists, deferring to SC_RESTORE");
-                }
+                AppendDiagLogF(L"WM_ACTIVATE: iconic, deferring restore to Windows");
             } else {
                 // 非 iconic：作为二次保障应用保存状态
                 if (g_savedPlacementForDragHideValid) {
@@ -12684,9 +12810,15 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
         const double dockTracePumpMs = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - dockTraceFrameStart).count();
 #endif
-        if (aris::update::ConsumeHarkenSearchUpdateGracefulExitRequest()) {
+        bool updateExitRequested=aris::update::ConsumeHarkenSearchUpdateGracefulExitRequest();
+#if AURA_BUILD_DIAGNOSTICS && ARIS_PREVIEW_ISOLATION && !AURA_INTERNAL_BETA
+        updateExitRequested=s_qaUpdateExitRequested.exchange(false,std::memory_order_acq_rel) || updateExitRequested;
+#endif
+        if (updateExitRequested) {
             RequestHarkenSearchExit(hwnd, L"update-bootstrap-accepted");
-            running = false;
+            // RequestHarkenSearchExit may be waiting for the Info save choice.
+            // Keep rendering until that choice actually destroys the window.
+            if (!Platform::WindowIsValid(hwnd)) running = false;
         }
 
         if (!running) {
@@ -13115,6 +13247,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
 #endif
         DevTools_BeginFramePhase("RenderUI");
         RenderUI(state);
+        GuardInfoMetadataContext(state);
+        RenderInfoMetadataLeavePrompt(state);
 #if AURA_BUILD_DIAGNOSTICS && ARIS_PREVIEW_ISOLATION && !AURA_INTERNAL_BETA
         const double dockTraceRenderUiMs = std::chrono::duration<double, std::milli>(
             std::chrono::steady_clock::now() - dockTraceRenderStart).count();
@@ -13467,7 +13601,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                                 uint64_t requiredBytes = (currentUsage + waveformSizeBytes) - budget;
                                 auto evicted = state.memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, requiredBytes);
                                 for (const auto& evictEntry : evicted)
-                                    ReleaseWaveformEvictedEntry(state, evictEntry.key);
+                                    ReleaseWaveformEvictedEntry(state, evictEntry.key,
+                                        MiniWaveformPresentation::Removal::BudgetEviction);
                             }
                         }
                         
@@ -13482,6 +13617,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                             state.waveformCache.erase(state.waveformCache.begin());
                         }
                     }
+                    InvalidateMiniWaveTextureAfterFrame(result.filePath);
                     state.waveformCache[result.filePath] = std::move(result.waveform);
                 } else {
                     int attempt = 1;
@@ -13720,6 +13856,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
             wglMakeCurrent(g_mainHdc ? g_mainHdc : hdc, g_hRC ? g_hRC : hglrc);
         }
 #endif
+        FlushDeferredMiniWaveTextureDeletes();
         aura::diagnostics::FrameBudgetDiagnostics::markGlRender();
         DevTools_EndFramePhase();
 

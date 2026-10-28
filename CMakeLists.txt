@@ -956,7 +956,7 @@ endif()
 # 诊断模块：开发构建用完整实现，上线用 Stub + DevTools 头文件内联空实现
 list(APPEND APP_SOURCES src/DiagnosticFileLifecycle.cpp)
 if(AURA_BUILD_DIAGNOSTICS)
-    list(APPEND APP_SOURCES src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
+    list(APPEND APP_SOURCES src/ScanDatabaseOpenDiagnostics.cpp src/DiagnosticsLogger.cpp src/DevToolsModule.cpp src/GMPanel.cpp src/UserActionLog.cpp src/DevToolsHarkenSearchSmoke.cpp src/FrameBudgetDiagnostics.cpp)
 else()
     list(APPEND APP_SOURCES src/DiagnosticsLoggerStub.cpp src/UserActionLogStub.cpp)
 endif()
@@ -1826,21 +1826,6 @@ if(Python3_Interpreter_FOUND)
             VERBATIM
         )
     endif()
-
-    add_custom_command(TARGET HarkenSearch POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:HarkenSearch>"
-            "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe"
-        COMMENT "Creating the legacy executable alias..."
-        VERBATIM
-    )
-
-    add_custom_command(TARGET HarkenSearch POST_BUILD
-        COMMAND ${Python3_EXECUTABLE} "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_sig.py"
-            "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe" "$<TARGET_FILE_DIR:HarkenSearch>/Auro.exe.sig"
-        COMMENT "Generating the legacy executable alias signature..."
-        VERBATIM
-    )
 
     if(ARIS_BOOTSTRAP_PACKAGE_KEY_ID AND ARIS_BOOTSTRAP_PACKAGE_PUBLIC_KEY_HEX)
         add_custom_command(TARGET HarkenSearch POST_BUILD

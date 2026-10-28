@@ -61,6 +61,7 @@
 #include "FileBrowser.h"
 #include "CoverReplacementFoundation.h"
 #include "Database.h"
+#include "ScanDatabaseOpenDiagnostics.h"
 #include "PathUtils.h"  // Canonical folder filters and scroll targets.
 #include "FolderTreeContextActions.h"
 #include "SearchQuery.h"
@@ -136,6 +137,7 @@
 #include "ui/CoreWorkspaceStyle.h"
 #include "ui/ModuleWindowShell.h"
 #include "CoverWallPageResultBuilder.h"
+#include "CoverWallSelectionKey.h"
 #include "CoverWallFacetRefreshPolicy.h"
 #include "CoverWallCachePolicy.h"
 #include "CoverWallTextureMirrorPolicy.h"
@@ -229,6 +231,7 @@
 #include "WaveformExtractor.h"
 #include "WaveformRegionEditor.h"
 #include "MiniWaveformGeometry.h"
+#include "MiniWaveformPresentation.h"
 #include "MiniWaveformScheduler.h"
 #include "SelectedWaveformRebuildQueue.h"
 #include "RenderFrameRequestPolicy.h"
@@ -949,7 +952,8 @@ SwitchDatabase(AppState& state,
                bool allowCreate = false,
                std::string* outImmediateError = nullptr,
                int initialWaveformCacheMode = -1,
-               bool overwriteExisting = false);
+               bool overwriteExisting = false,
+               std::function<void(bool, const std::string&)> afterDeferredStart = {});
 static bool SidebarRefreshGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_busy = false);
 static bool SidebarClearAllGlyphButton(const char* id_str, const ImVec2& size_arg = ImVec2(30, 24), bool is_emphasized = false);
 bool HorizontalSplitter(const char* id, float* panelHeight, float minHeight = 50.0f, float maxHeight = 500.0f, float width = 0.0f, bool growWhenDraggingDown = false);
@@ -969,7 +973,7 @@ using aura::cover_wall::SanitizeCoverWallItemsForCache;
 using aura::cover_wall::BuildCoverWallItemsFromCachedKeys;
 using aura::cover_wall::BuildCoverWallItemsFromSearchResultsFallback;
 using aura::cover_wall::ConvertCoverWallEntryToItem;
-using aura::cover_wall::BuildCoverWallVisualDedupeToken;
+using aura::cover_wall::AppendUniqueCoverWallPageItems;
 using aura::cover_wall::BuildCoverWallPageLoadResult;
 using aura::cover_wall::BuildCoverWallLoadResultFromEntries;
 using aura::cover_wall::LoadGlobalCoverWallPage;
@@ -1889,6 +1893,7 @@ struct MiniWaveTextureEntry {
 };
 
 static std::unordered_map<std::string, MiniWaveTextureEntry> g_miniWaveTextureCache; // filePath -> texture
+static MiniWaveformPresentation::DeferredTextureDeletes g_deferredMiniWaveTextureDeletes;
 static const size_t kMaxMiniWaveTextures = 250;
 
 // Mini waveform texture upload queue.
@@ -2022,6 +2027,15 @@ static bool HasCompatibleMiniWaveTexture(const std::string& path, int targetW, i
     }
 
     cacheIt->second.lastUsedFrame = frame;
+    return true;
+}
+
+static bool GetRetainedMiniWaveTexture(const std::string& path, MiniWaveTextureEntry& outTex) {
+    auto it = g_miniWaveTextureCache.find(path);
+    if (it == g_miniWaveTextureCache.end() || !it->second.hasTexture || it->second.textureId == 0)
+        return false;
+    it->second.lastUsedFrame = (uint64_t)ImGui::GetFrameCount();
+    outTex = it->second;
     return true;
 }
 
@@ -2447,16 +2461,34 @@ static void ScheduleMiniWaveformRequestsForRange(AppState& state, int displaySta
     }
 }
 
-void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key) {
-    state.waveformCache.erase(key);
-    state.waveformFailed.erase(key);
+void InvalidateMiniWaveTextureForPath(const std::string& key) {
     auto texIt = g_miniWaveTextureCache.find(key);
     if (texIt != g_miniWaveTextureCache.end()) {
-        if (texIt->second.textureId != 0) {
+        if (texIt->second.textureId != 0)
             DeleteMiniWaveTexture(texIt->second.textureId);
-        }
         g_miniWaveTextureCache.erase(texIt);
     }
+}
+
+void InvalidateMiniWaveTextureAfterFrame(const std::string& key) {
+    auto texIt = g_miniWaveTextureCache.find(key);
+    if (texIt == g_miniWaveTextureCache.end()) return;
+    g_deferredMiniWaveTextureDeletes.Queue(texIt->second.textureId);
+    g_miniWaveTextureCache.erase(texIt);
+}
+
+void FlushDeferredMiniWaveTextureDeletes() {
+    g_deferredMiniWaveTextureDeletes.Flush([](GLuint id) {
+        DeleteMiniWaveTexture(id);
+    });
+}
+
+void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key,
+                                 MiniWaveformPresentation::Removal removal) {
+    state.waveformCache.erase(key);
+    state.waveformFailed.erase(key);
+    if (!MiniWaveformPresentation::RetainTextureAfterRemoval(removal))
+        InvalidateMiniWaveTextureForPath(key);
 }
 
 // 封面图片文件读取 / 文件夹封面缓存 / 内嵌封面纹理等逻辑已迁移到 `CoverModule.*`
@@ -5334,6 +5366,10 @@ void LoadAppSettings(AppState& state) {
         state.settingsDirty = true;
     }
 
+    state.settings.infoPages.visibleMask = ParseInt(kv["infoPageVisibleMask"], 15);
+    state.settings.infoPages.selected = ParseInt(kv["infoSelectedPage"], 1);
+    state.settings.infoPages.Normalize(AURA_BUILD_DIAGNOSTICS != 0);
+
     // UI sizing. Reading font is the single user-facing size; chrome is pinned.
     {
         auto itReading = kv.find("readingFontSize");
@@ -6121,6 +6157,7 @@ void LoadAppSettings(AppState& state) {
             FolderShortcut sc;
             sc.name = kv[prefix + "name"];
             sc.path = kv[prefix + "path"];
+            sc.openInBrowser = ParseBool(kv[prefix + "openInBrowser"], false);
             if (sc.name.empty() || sc.path.empty()) continue;
             state.folderShortcuts.push_back(std::move(sc));
         }
@@ -6262,6 +6299,8 @@ bool TrySaveAppSettings(const AppState& state) {
     items.push_back({"fileInfoDockSide", std::to_string((int)state.fileInfoDockSide)});
     items.push_back({"sidebarDockSide", std::to_string((int)state.sidebarDockSide)});
     items.push_back({"infoPanelLayoutVersion", "1"});
+    items.push_back({"infoPageVisibleMask", std::to_string(state.settings.infoPages.visibleMask)});
+    items.push_back({"infoSelectedPage", std::to_string(state.settings.infoPages.selected)});
 
     // UI sizing
     items.push_back({"fontSize", std::to_string(state.settings.fontSize)});
@@ -6639,6 +6678,7 @@ bool TrySaveAppSettings(const AppState& state) {
             std::string prefix = "folderShortcut" + std::to_string(i) + "_";
             items.push_back({prefix + "name", sc.name});
             items.push_back({prefix + "path", sc.path});
+            items.push_back({prefix + "openInBrowser", sc.openInBrowser ? "1" : "0"});
         }
     }
 
@@ -9896,7 +9936,8 @@ BuildAsyncSearchResultApplicationEffects() {
             IsCoverWallPriorityMode,
             ResetWaveformZoom,
             [](AppState& appState, const std::string& key) {
-                ReleaseWaveformEvictedEntry(appState, key);
+                ReleaseWaveformEvictedEntry(appState, key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             },
         });
 }
@@ -10421,7 +10462,8 @@ void AppState::performGlobalMemoryGC() {
             uint64_t over = wUsage - wBudget;
             auto evicted = memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, over);
             for (const auto& e : evicted)
-                ReleaseWaveformEvictedEntry(*this, e.key);
+                ReleaseWaveformEvictedEntry(*this, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
         }
     } else {
         waveformCache.clear();
@@ -10552,12 +10594,58 @@ void PumpDatabaseSwitchIfPending(AppState& state) {
 // 主线程仅做必须主线程的事（GPU 资源 + 轻量 state 清理 + 设置 in-progress 标志），
 // 全部可能阻塞的 teardown（scanner/searchWorker/waveformWorker/database.close）和
 // database.open 一起放到后台线程，避免大库切换时主线程被 join 卡数十秒。
+static InfoEditValues CurrentInfoEditValues(const AppState& state) {
+    return {state.metadataDescBuffer,state.metadataKeywordsBuffer,state.metadataCategoryBuffer};
+}
+
+bool RequestInfoMetadataLeave(AppState& state, std::function<void()> afterLeave) {
+    if (!state.infoEditSession.active) return false;
+    const bool alreadyPending=state.infoEditSession.awaitingChoice;
+    if (!state.infoEditSession.RequestLeave(CurrentInfoEditValues(state))) {
+        state.metadataEditMode=false;
+        state.metadataBatchMode=false;
+        state.metadataBatchIds.clear();
+        state.infoEditRecords.clear();
+        return false;
+    }
+    if (!alreadyPending) state.infoEditAfterLeave=std::move(afterLeave);
+    return true;
+}
+
+void GuardInfoMetadataContext(AppState& state) {
+    if (!state.infoEditSession.active) return;
+    int64_t selectedId=state.currentFileId;
+    if (state.selectedResultIndex>=0 && state.selectedResultIndex<(int)state.searchResults.size())
+        selectedId=state.searchResults[state.selectedResultIndex].id;
+    const bool leaving = selectedId!=state.infoEditSelectionId ||
+        state.viewMode==ViewMode::Browser || !state.panelFileInfo.visible ||
+        state.settings.infoPages.selected!=0 || !state.settings.infoPages.IsVisible(InfoPage::Metadata,true);
+    if (leaving && !state.infoEditSession.awaitingChoice) {
+        const bool visible=state.panelFileInfo.visible;
+        const auto pages=state.settings.infoPages;
+        RequestInfoMetadataLeave(state,[&state,visible,pages] {
+            state.panelFileInfo.visible=visible; state.settings.infoPages=pages; state.settingsDirty=true;
+        });
+    }
+    if (state.infoEditSession.awaitingChoice) {
+        state.panelFileInfo.visible=true;
+        state.settings.infoPages.visibleMask=state.infoEditVisibleMask;
+        state.settings.infoPages.selected=0;
+    }
+}
+
 static bool SwitchDatabase(AppState& state,
                            const std::string& newDbPathUtf8,
                            bool allowCreate,
                            std::string* outImmediateError,
                            int initialWaveformCacheMode,
-                           bool overwriteExisting) {
+                           bool overwriteExisting,
+                           std::function<void(bool, const std::string&)> afterDeferredStart) {
+    if (RequestInfoMetadataLeave(state,[&state,newDbPathUtf8,allowCreate,initialWaveformCacheMode,overwriteExisting,afterDeferredStart=std::move(afterDeferredStart)] {
+        std::string error;
+        const bool started=SwitchDatabase(state,newDbPathUtf8,allowCreate,&error,initialWaveformCacheMode,overwriteExisting);
+        if(afterDeferredStart) afterDeferredStart(started,error);
+    })) return false;
     const std::string effectiveDbPathUtf8 = newDbPathUtf8.empty()
         ? std::string()
         : ResolveCanonicalHarkenSearchDatabasePathUtf8(newDbPathUtf8);
@@ -10857,7 +10945,7 @@ static std::string ResolveBrowserEntryFolderPath(const FileEntry& entry) {
     }
 }
 
-static bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& folderPath) {
+bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& folderPath) {
     if (folderPath.empty()) {
         return false;
     }
@@ -10866,11 +10954,25 @@ static bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& fol
     if (folderName.empty()) {
         folderName = folderPath;
     }
-    if (!AddFolderShortcutIfMissing(state, folderName, folderPath)) {
+    if (!AddFolderShortcutIfMissing(state, folderName, folderPath, true)) {
         return false;
     }
     MarkSettingsDirty(state);
     return true;
+}
+
+void OpenFolderShortcut(AppState& state, const FolderShortcut& shortcut) {
+    if (shortcut.openInBrowser) {
+        state.viewMode = ViewMode::Browser;
+        NavigateBrowserToFolder(state, shortcut.path, state.fileBrowser.getScope());
+    } else {
+        state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(shortcut.path);
+        state.folderFilterActive = true;
+        state.viewMode = ViewMode::Database;
+        state.preferDeferredCountForNextRefresh = true;
+        RefreshSearchResults(state, true);
+    }
+    state.syncToTab();
 }
 
 static void QueueBrowserFolderScan(AppState& state, const std::string& folderPath) {
@@ -15483,15 +15585,14 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 
                 // 渲染快捷项
                 // T2.6: 比较两侧都过 canonical (sc.path 来自 facet 可能是 raw)
-                bool isSelected = (state.folderFilterActive && state.selectedFolderPath == HarkenSearch::CanonicalFolderPath(sc.path));
+                const std::string shortcutPath = HarkenSearch::CanonicalFolderPath(sc.path);
+                bool isSelected = sc.openInBrowser
+                    ? (state.viewMode == ViewMode::Browser &&
+                       HarkenSearch::CanonicalFolderPath(state.fileBrowser.getCurrentPath()) == shortcutPath)
+                    : (state.viewMode == ViewMode::Database && state.folderFilterActive &&
+                       state.selectedFolderPath == shortcutPath);
                 if (ImGui::Selectable(sc.name.c_str(), isSelected)) {
-                    state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(sc.path);
-                    state.folderFilterActive = true;
-                    state.viewMode = ViewMode::Database;
-                    state.preferDeferredCountForNextRefresh = true;
-                    // 使用已有的异步刷新机制
-                    RefreshSearchResults(state, true);
-                    state.syncToTab();
+                    OpenFolderShortcut(state, sc);
                 }
 
                 // 右键菜单：删除快捷方式
@@ -17210,7 +17311,6 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
                     if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ARTWORK_WALL_ITEM")) {
                         if (payload->Data && payload->DataSize > 0) {
                             std::string key((const char*)payload->Data);
-                            auto fileIds = state.database.getFileIdsForCoverTileMembership(key);
                             playlistChanged = AddCoverTileMembershipToPlaylist(
                                 state, pl.id, pl.name, key, "sidebar-cover-drag");
                         }
@@ -17352,11 +17452,95 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 
 // SECTION 9 - File Info Panel
 
+static void BeginInfoMetadataEdit(AppState& state, const AudioRecord& record) {
+    if (record.id<=0 || state.infoEditSession.active || state.dbSwitchInProgress) return;
+    state.infoEditRecords.clear();
+    if (state.selectedIndicesSet.size()>1) {
+        for (int i:state.selectedIndicesSet)
+            if(i>=0 && i<(int)state.searchResults.size()) state.infoEditRecords.push_back(state.searchResults[i]);
+    }
+    if (state.infoEditRecords.empty()) state.infoEditRecords.push_back(record);
+    state.metadataBatchMode=state.infoEditRecords.size()>1;
+    state.metadataBatchIds.clear();
+    for (const auto& item:state.infoEditRecords) state.metadataBatchIds.push_back(item.id);
+    state.metadataEditFileId=record.id;
+    state.infoEditSelectionId=record.id;
+    state.infoEditDatabasePath=state.database.getMainDbPath();
+    state.infoEditVisibleMask=state.settings.infoPages.visibleMask;
+    strncpy_s(state.metadataDescBuffer,sizeof(state.metadataDescBuffer),state.metadataBatchMode?"":record.description.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataKeywordsBuffer,sizeof(state.metadataKeywordsBuffer),state.metadataBatchMode?"":record.keywords.c_str(),_TRUNCATE);
+    strncpy_s(state.metadataCategoryBuffer,sizeof(state.metadataCategoryBuffer),state.metadataBatchMode?"":record.category.c_str(),_TRUNCATE);
+    state.infoEditSession.Begin(CurrentInfoEditValues(state));
+    state.infoEditError.clear();
+    state.infoEditAfterLeave={};
+    state.metadataEditMode=true;
+}
+
+static bool SaveInfoMetadataDraft(AppState& state) {
+    if (state.database.getMainDbPath()!=state.infoEditDatabasePath || state.infoEditRecords.empty()) return false;
+    const auto values=CurrentInfoEditValues(state);
+    const auto& old=state.infoEditSession.original;
+    const bool desc=values.description!=old.description, keys=values.keywords!=old.keywords, cat=values.category!=old.category;
+    MetadataEditPatch patch;
+    if(desc) patch.setDescription(values.description);
+    if(keys) patch.setKeywords(values.keywords);
+    if(cat) patch.setCategory(values.category);
+    auto undo=std::make_unique<MetadataPatchOp>();
+    undo->operationName=state.metadataBatchMode?"Batch edit metadata":"Edit metadata";
+    std::vector<int64_t> ids;
+    for(const auto& original:state.infoEditRecords) {
+        // Resolve by the captured identity, never by the new selection.
+        const auto current=state.database.getFileById(original.id);
+        if(current.id!=original.id || current.filePath!=original.filePath ||
+           !Platform::FileSystem::Exists(original.filePath)) return false;
+        MetadataPatchEntry entry; entry.fileId=original.id;
+        if(desc) { entry.oldValues["description"]=current.description; entry.newValues["description"]=values.description; }
+        if(keys) { entry.oldValues["keywords"]=current.keywords; entry.newValues["keywords"]=values.keywords; }
+        if(cat) { entry.oldValues["category"]=current.category; entry.newValues["category"]=values.category; }
+        undo->entries.push_back(std::move(entry)); ids.push_back(original.id);
+    }
+    const auto result=state.database.applyMetadataPatchBatch(ids,patch);
+    if(result.failed || result.success!=(int)ids.size()) return false;
+    state.undoStack.push(std::move(undo));
+    state.database.invalidateFacetQueryCache();
+    g_forceMetaCacheInvalidate=true;
+    RefreshSearchResults(state,false);
+    return true;
+}
+
+void RenderInfoMetadataLeavePrompt(AppState& state) {
+    if (!state.infoEditSession.awaitingChoice) return;
+    const char* title=L(Info_SaveBeforeLeaving);
+    if (!ImGui::IsPopupOpen(title)) ImGui::OpenPopup(title);
+    bool resolved=false;
+    if (ImGui::BeginPopupModal(title,nullptr,ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextUnformatted(L(Info_SaveBeforeLeavingBody));
+        if (!state.infoEditError.empty()) ImGui::TextWrapped("%s",state.infoEditError.c_str());
+        const bool yes=ImGui::Button(L(Info_SaveYes),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveYes",L(Info_SaveYes),"src/main.cpp");
+        ImGui::SameLine();
+        const bool no=ImGui::Button(L(Info_SaveNo),ImVec2(140,0));
+        ThemeInspector::RegisterLastItem("info.saveNo",L(Info_SaveNo),"src/main.cpp");
+        if (yes || no) {
+            const bool saved=yes && SaveInfoMetadataDraft(state);
+            resolved=state.infoEditSession.Resolve(yes,saved);
+            if(resolved) ImGui::CloseCurrentPopup();
+            else state.infoEditError=L(Info_SaveFailedKeepEditing);
+        }
+        ImGui::EndPopup();
+    }
+    if (resolved) {
+        state.metadataEditMode=false; state.metadataBatchMode=false; state.metadataBatchIds.clear();
+        state.infoEditRecords.clear(); state.infoEditError.clear();
+        auto after=std::move(state.infoEditAfterLeave); state.infoEditAfterLeave={};
+        if(after) after();
+    }
+}
+
 void RenderFileInfoPanelTabContents(
     AppState& state,
     float panelWidth,
-    const FileInfoPanelChrome& chrome,
-    ImGuiTabItemFlags artworkFlags) {
+    const FileInfoPanelChrome& chrome) {
     auto withAlpha = [](ImVec4 c, float a) -> ImVec4 { c.w = a; return c; };
     auto mix = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
         return ImVec4(
@@ -17372,7 +17556,7 @@ void RenderFileInfoPanelTabContents(
         // 其他标签：优先保持当前选中项的稳定布局，不因为异步加载中途掉到 fallback 分支而整块跳动
         // Keep the selected record as a stable display source until audio is ready.
         const int selIndex = state.selectedResultIndex;
-        const bool hasSelectedRecord =
+        bool hasSelectedRecord =
             (state.viewMode != ViewMode::Browser) &&
             (selIndex >= 0) &&
             (selIndex < (int)state.searchResults.size());
@@ -17381,11 +17565,18 @@ void RenderFileInfoPanelTabContents(
             selectedRecord = state.searchResults[(size_t)selIndex];
         }
 
+        if (state.infoEditSession.active && !state.infoEditRecords.empty()) {
+            selectedRecord = state.infoEditRecords.front();
+            for (const auto& item:state.infoEditRecords)
+                if(item.id==state.metadataEditFileId) selectedRecord=item;
+            hasSelectedRecord=true;
+        }
+
         const AudioFileInfo& engineInfo = state.audioEngine.getFileInfo();
         const bool hasEngineInfo = state.audioEngine.isLoaded() && !engineInfo.filePath.empty();
         const bool useSelectedRecordInfo =
             hasSelectedRecord &&
-            (!hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
+            (state.infoEditSession.active || !hasEngineInfo || state.audioEngine.isLoadFilePending() || engineInfo.filePath != selectedRecord.filePath);
         bool isAudioValid = hasEngineInfo || useSelectedRecordInfo;
         if (isAudioValid) {
         AudioFileInfo info = engineInfo;
@@ -17401,9 +17592,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Metadata Summary (classic library layout)
         // ---------------------------------------------------------------------
-        bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-        ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22027");
-        DecorateFileInfoTab(chrome, tabMetaOpen);
+        bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
         if (tabMetaOpen) {
             BeginTransientScrollbarChild("##MetaSummaryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -17426,6 +17616,14 @@ void RenderFileInfoPanelTabContents(
             } else if (useSelectedRecordInfo) {
                 record = selectedRecord;
             }
+
+            const ImVec2 infoOrigin=ImGui::GetWindowPos();
+            const ImVec2 infoSize=ImGui::GetWindowSize();
+            ThemeInspector::RegisterZone(infoOrigin,ImVec2(infoOrigin.x+infoSize.x,infoOrigin.y+infoSize.y),
+                "info.metadataContent",L(Info_MetaSummaryTab),"src/main.cpp");
+            if (hasDb && !state.infoEditSession.active &&
+                ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows) && ImGui::IsMouseDoubleClicked(0))
+                BeginInfoMetadataEdit(state,record);
 
             // Async info-panel IO (metadata + file times + bit depth): avoid UI thread blocking.
             struct InfoPanelAsyncPayload {
@@ -17897,6 +18095,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditDesc", state.metadataDescBuffer, sizeof(state.metadataDescBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.description",L(Info_Description),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17904,6 +18103,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditKeywords", state.metadataKeywordsBuffer, sizeof(state.metadataKeywordsBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.keywords",L(Info_Keywords),"src/main.cpp");
 
                     ImGui::TableNextRow();
                     ImGui::TableNextColumn();
@@ -17911,6 +18111,7 @@ void RenderFileInfoPanelTabContents(
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     ImGui::InputText("##EditCategory", state.metadataCategoryBuffer, sizeof(state.metadataCategoryBuffer));
+                    ThemeInspector::RegisterLastItem("info.edit.category",L(Info_Category),"src/main.cpp");
                 } else {
                     // Display mode
                     row(L(Info_Description), desc.empty() ? "-" : desc);
@@ -17952,119 +18153,6 @@ void RenderFileInfoPanelTabContents(
                 ImGui::EndTable();
             }
 
-            // Metadata edit buttons
-            static std::string s_inlineMetaSaveMsg;
-            static int s_inlineMetaSaveSuccess = 0, s_inlineMetaSaveSkipped = 0, s_inlineMetaSaveFailed = 0;
-            ImGui::Separator();
-            if (hasDb) {
-                bool isEditing = state.metadataEditMode &&
-                    (state.metadataBatchMode ? !state.metadataBatchIds.empty() : state.metadataEditFileId == record.id);
-
-                if (isEditing) {
-                    // Show batch info if in batch mode
-                    if (state.metadataBatchMode) {
-                        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.2f, 1.0f), L(Info_BatchEditN), (int)state.metadataBatchIds.size());
-                    }
-
-                    // Save / Cancel buttons
-                    if (ImGui::Button(L(Main_SaveChangesBtn), ImVec2(ImGui::GetContentRegionAvail().x * 0.5f - 4, 28))) {
-                        s_inlineMetaSaveSuccess = 0;
-                        s_inlineMetaSaveSkipped = 0;
-                        s_inlineMetaSaveFailed = 0;
-                        auto undoOp = std::make_unique<MetadataPatchOp>();
-                        undoOp->operationName = state.metadataBatchMode ? "Batch edit metadata" : "Edit metadata";
-
-                        if (state.metadataBatchMode) {
-                            std::unordered_map<int64_t, const AudioRecord*> recMap;
-                            for (const auto& r : state.searchResults) recMap[r.id] = &r;
-
-                            std::vector<int64_t> applyIds;
-                            MetadataEditPatch patch;
-                            patch.setDescription(state.metadataDescBuffer);
-                            patch.setKeywords(state.metadataKeywordsBuffer);
-                            patch.setCategory(state.metadataCategoryBuffer);
-                            for (int64_t id : state.metadataBatchIds) {
-                                auto it = recMap.find(id);
-                                if (it == recMap.end()) { s_inlineMetaSaveFailed++; continue; }
-                                const AudioRecord* rec = it->second;
-                                if (!Platform::FileSystem::Exists(rec->filePath)) {
-                                    s_inlineMetaSaveSkipped++;
-                                    continue;
-                                }
-                                applyIds.push_back(id);
-                                MetadataPatchEntry entry;
-                                entry.fileId = id;
-                                entry.oldValues = {{"description", rec->description}, {"keywords", rec->keywords}, {"category", rec->category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                            }
-                            if (!applyIds.empty()) {
-                                BatchMetadataApplyResult res = state.database.applyMetadataPatchBatch(applyIds, patch);
-                                if (res.failed == 0) {
-                                    s_inlineMetaSaveSuccess = res.success;
-                                } else {
-                                    s_inlineMetaSaveSuccess = 0;
-                                    s_inlineMetaSaveFailed += (int)applyIds.size();
-                                    undoOp->entries.clear();
-                                }
-                            }
-                        } else {
-                            // Single file
-                            if (!Platform::FileSystem::Exists(record.filePath)) {
-                                s_inlineMetaSaveSkipped = 1;
-                            } else {
-                                MetadataEditPatch patch;
-                                patch.setDescription(state.metadataDescBuffer);
-                                patch.setKeywords(state.metadataKeywordsBuffer);
-                                patch.setCategory(state.metadataCategoryBuffer);
-                                MetadataPatchEntry entry;
-                                entry.fileId = record.id;
-                                entry.oldValues = {{"description", record.description}, {"keywords", record.keywords}, {"category", record.category}};
-                                entry.newValues = {{"description", state.metadataDescBuffer}, {"keywords", state.metadataKeywordsBuffer}, {"category", state.metadataCategoryBuffer}};
-                                undoOp->entries.push_back(std::move(entry));
-                                if (state.database.applyMetadataPatch(record.id, patch)) {
-                                    s_inlineMetaSaveSuccess = 1;
-                                } else {
-                                    s_inlineMetaSaveFailed = 1;
-                                }
-                            }
-                        }
-                        if (s_inlineMetaSaveSuccess > 0) {
-                            state.undoStack.push(std::move(undoOp));
-                            state.database.invalidateFacetQueryCache();
-                            s_cachedMetaFileId = -1; // invalidate to reflect updated values
-                            RefreshSearchResults(state, false);
-                        }
-                        s_inlineMetaSaveMsg = std::to_string(s_inlineMetaSaveSuccess) + u8" 成功";
-                        if (s_inlineMetaSaveSkipped > 0)
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveSkipped) + u8" 跳过（文件不在磁盘上）";
-                        if (s_inlineMetaSaveFailed > 0) {
-                            s_inlineMetaSaveMsg += u8", " + std::to_string(s_inlineMetaSaveFailed) + u8" 失败";
-                            if (!state.database.getLastError().empty()) {
-                                s_inlineMetaSaveMsg += u8" ";
-                                s_inlineMetaSaveMsg += L(Write_BlockedNetworkLibrary);
-                            }
-                        }
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                    }
-                    ImGui::SameLine();
-                    if (ImGui::Button(L(Main_CancelBracketBtn), ImVec2(-1, 28))) {
-                        state.metadataEditMode = false;
-                        state.metadataBatchMode = false;
-                        state.metadataBatchIds.clear();
-                        s_inlineMetaSaveMsg.clear();
-                    }
-                }
-                if (!s_inlineMetaSaveMsg.empty()) {
-                    ImGui::TextColored(
-                        s_inlineMetaSaveFailed > 0 ? ImVec4(1.0f, 0.4f, 0.4f, 1.0f) :
-                        (s_inlineMetaSaveSkipped > 0 ? ImVec4(1.0f, 0.8f, 0.2f, 1.0f) : ImVec4(0.4f, 0.9f, 0.4f, 1.0f)),
-                        "%s", s_inlineMetaSaveMsg.c_str());
-                }
-            }
-
             // Region info (display only, no DAW drag buttons)
             float inPt = state.audioEngine.getInPoint();
             float outPt = state.audioEngine.getOutPoint();
@@ -18097,13 +18185,12 @@ void RenderFileInfoPanelTabContents(
 
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } else {
             // Fallback: keep Info functional even when no file is loaded in engine.
-            bool tabMetaOpen = ImGui::BeginTabItem(L(Info_MetaSummaryTab));
-            ThemeInspector::RegisterLastItem("info.metadataSummary", L(Info_MetaSummaryTab), "src/main.cpp:22787");
-            DecorateFileInfoTab(chrome, tabMetaOpen);
+            bool tabMetaOpen = (state.settings.infoPages.selected == 0);
+
             if (tabMetaOpen) {
                 BeginTransientScrollbarChild("##MetaSummaryNoLoaded", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
                 ImGui::Indent(10.0f);
@@ -18161,7 +18248,7 @@ void RenderFileInfoPanelTabContents(
                 }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
         } // end loaded/unloaded meta summary
 
@@ -18172,9 +18259,8 @@ void RenderFileInfoPanelTabContents(
         // ---------------------------------------------------------------------
         // Artwork wall (封面墙 - 极速版)
         // ---------------------------------------------------------------------
-        bool tabCoverOpen = ImGui::BeginTabItem(L(Info_ArtworkTab), nullptr, artworkFlags);
-        ThemeInspector::RegisterLastItem("info.artwork", L(Info_ArtworkTab), "src/main.cpp:22857");
-        DecorateFileInfoTab(chrome, tabCoverOpen);
+        bool tabCoverOpen = (state.settings.infoPages.selected == 1);
+
         SetCoverWallPriorityMode(tabCoverOpen);
 
         // 方案 A：仅当封面墙 Tab 打开时才拉表+首屏预填，非封面墙时不跑以降低主线程压力（见 第一刀）
@@ -18703,20 +18789,7 @@ void RenderFileInfoPanelTabContents(
                     } else if (!staleEntriesView) {
                     SanitizeCoverWallItemsForCache(page.items);
                     if (wasLoadingNextPage) {
-                        std::unordered_set<std::string> existingTokens;
-                        existingTokens.reserve(cw.items.size() + page.items.size());
-                        for (const auto& it : cw.items) {
-                            existingTokens.insert(BuildCoverWallVisualDedupeToken(it));
-                        }
-                        for (auto& item : page.items) {
-                            const std::string dedupeToken =
-                                BuildCoverWallVisualDedupeToken(item);
-                            if (!item.key.empty() &&
-                                !dedupeToken.empty() &&
-                                existingTokens.insert(dedupeToken).second) {
-                                cw.items.push_back(std::move(item));
-                            }
-                        }
+                        AppendUniqueCoverWallPageItems(cw.items, page.items);
                     } else {
                         cw.items = std::move(page.items);
                     }
@@ -18846,6 +18919,9 @@ void RenderFileInfoPanelTabContents(
                     setDisplayItems(&cw.items, CoverWallSource::Global);
                 }
 
+                globalPageLoadingWithoutStableItems =
+                    (cw.loading || cw.entriesInFlight || cw.foldersInFlight || cw.preloadInFlight) &&
+                    (!pDisplayItems || pDisplayItems->empty());
                 // Refresh the cover-wall load-state text.
                 }
             }
@@ -18876,9 +18952,8 @@ void RenderFileInfoPanelTabContents(
 // 底部工具栏（固定，不跟随滚动）
             constexpr float kArtworkFaderTrackH = 14.0f;
             constexpr float kArtworkSliderStripH = 22.0f;
-            float bottomBarH = kArtworkSliderStripH + 4.0f;
             float availH = ImGui::GetContentRegionAvail().y;
-            float scrollH = std::max(32.0f, availH - bottomBarH);
+            float scrollH = FileInfoArtworkContentHeight(availH, kArtworkSliderStripH);
             cw.thumbSize = aura::coverwall::ClampThumbSize(cw.thumbSize);
 
             // When a specific cover-key filter is active, force-narrow the
@@ -18895,15 +18970,21 @@ void RenderFileInfoPanelTabContents(
                 state.coverFilterActive &&
                 !state.coverFilterPath.empty()) {
                 CoverModule::CoverItem ci;
+                std::vector<std::string> selectedKeys;
+                const bool exactSelection = aura::cover_wall::DecodeCoverWallSelectionKey(
+                    state.coverFilterPath, selectedKeys);
+                const std::string selectedTileKey = exactSelection
+                    ? selectedKeys.front() : state.coverFilterPath;
                 if (UseReplacementCoverWallIntegratedMode(state) &&
                     !cw.pinnedCoverFilterItem.key.empty() &&
-                    cw.pinnedCoverFilterItem.key == state.coverFilterPath) {
+                    (cw.pinnedCoverFilterItem.key == state.coverFilterPath ||
+                     cw.pinnedCoverFilterItem.wallSelectionKey == state.coverFilterPath)) {
                     ci = cw.pinnedCoverFilterItem;
                 } else {
                     auto findByKey = [&](const std::vector<CoverModule::CoverItem>* src) -> const CoverModule::CoverItem* {
                         if (!src) return nullptr;
                         for (const auto& it : *src) {
-                            if (it.key == state.coverFilterPath) return &it;
+                            if (it.key == selectedTileKey) return &it;
                         }
                         return nullptr;
                     };
@@ -18914,11 +18995,12 @@ void RenderFileInfoPanelTabContents(
                     if (found) {
                         ci = *found;
                     } else {
-                        ci.key = state.coverFilterPath;
+                        ci.key = selectedTileKey;
                         ci.kind = CoverModule::CoverKind::FolderCover;
-                        ci.label = BaseNameFromUtf8Path(state.coverFilterPath);
+                        ci.label = BaseNameFromUtf8Path(selectedTileKey);
                     }
                 }
+                ci.wallSelectionKey = state.coverFilterPath;
                 ci.hitCount = (int64_t)state.searchResults.size();
                 coverFilterPinned.push_back(std::move(ci));
                 pDisplayItems = &coverFilterPinned;
@@ -19119,7 +19201,7 @@ void RenderFileInfoPanelTabContents(
             ImGui::PushStyleColor(ImGuiCol_ChildBg, ThemeColors::current().coverWallBG);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildRounding, 8.0f);
             ImGui::PushStyleVar(ImGuiStyleVar_ChildBorderSize, 1.0f);
-            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true, ImGuiWindowFlags_AlwaysVerticalScrollbar);
+            BeginTransientScrollbarChild("##ArtworkScroll", ImVec2(0, scrollH), true);
             int coverWallReadyCount = 0;  // 供底部统计显示
             int coverWallLiveTextureCount = 0;
             int coverWallMirrorCount = 0;
@@ -19630,7 +19712,14 @@ void RenderFileInfoPanelTabContents(
                                 ImGui::SetCursorScreenPos(cellScreenPos);
                                 if (ImGui::InvisibleButton("##ArtHit", ImVec2(thumb, thumb))) {
                                     auto t0 = std::chrono::steady_clock::now();
-                                    if (item.key.rfind("?|", 0) == 0) {
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    if (item.key.rfind("?|", 0) == 0 && item.wallMemberKeys.size() <= 1) {
                                         state.folderFilterActive = true;
                                         // T2.6: cover wall art click 入口 canonical
                                         state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(item.folderPathUtf8);
@@ -19639,15 +19728,15 @@ void RenderFileInfoPanelTabContents(
                                         state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                     } else {
                                         // Query without a folder boundary for this identity.
-                                        if (state.coverFilterActive && state.coverFilterPath == item.key) {
+                                        if (state.coverFilterActive && state.coverFilterPath == selectionKey) {
                                             state.coverFilterActive = false;
                                             state.coverFilterPath.clear();
                                             state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                         } else {
                                             state.coverFilterActive = true;
-                                            state.coverFilterPath = item.key;
+                                            state.coverFilterPath = selectionKey;
                                             if (state.database.isOpen()) {
-                                                (void)state.database.getFileIdsForCoverTileMembership(item.key);
+                                                (void)state.database.getFileIdsForCoverTileMembership(selectionKey);
                                             }
                                             // Snapshot the clicked item so the render-time
                                             // "narrow wall to active cover" override always
@@ -19658,6 +19747,7 @@ void RenderFileInfoPanelTabContents(
                                             // collapses to "0 个封面".
                                             if (UseReplacementCoverWallIntegratedMode(state)) {
                                                 state.coverWall.pinnedCoverFilterItem = item;
+                                                state.coverWall.pinnedCoverFilterItem.wallSelectionKey = selectionKey;
                                             } else {
                                                 state.coverWall.pinnedCoverFilterItem = CoverModule::CoverItem{};
                                             }
@@ -19689,7 +19779,14 @@ void RenderFileInfoPanelTabContents(
 
                                 if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_SourceAllowNullID)) {
                                     MaybePausePlaybackOnInScopeDragStart();
-                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", item.key.c_str(), (int)(item.key.size() + 1));
+                                    const std::string selectionKey = !item.wallSelectionKey.empty()
+                                        ? item.wallSelectionKey
+                                        : item.wallMemberKeys.size() > 1
+                                        ? aura::cover_wall::EncodeGroupedCoverWallKeys(item.wallMemberKeys)
+                                        : (state.folderFilterActive
+                                            ? aura::cover_wall::EncodeExactCoverWallKey(item.key)
+                                            : item.key);
+                                    ImGui::SetDragDropPayload("ARTWORK_WALL_ITEM", selectionKey.c_str(), (int)(selectionKey.size() + 1));
                                     ImGui::Text(L(Main_CategorizeCoverAllFmt), item.label.c_str());
                                     ImGui::EndDragDropSource();
                                 }
@@ -19865,20 +19962,19 @@ void RenderFileInfoPanelTabContents(
                     cw.thumbSize,
                     aura::coverwall::kMinThumbSizePx,
                     aura::coverwall::ResolveThumbSizeSliderMaxPx(panelWidth));
-                ImGui::SetCursorScreenPos(ImVec2(stripPos.x, stripPos.y + stripH));
+                FinishFileInfoArtworkFooter(stripPos, stripH);
             }
 
             } // end warmup skip else
 
-            ImGui::EndTabItem();
+
             DevTools_EndFramePhase();
         }
 
         // Transfer History tab — hidden in release builds (placeholder only)
 #if AURA_BUILD_DIAGNOSTICS
-        bool tabTransferOpen = ImGui::BeginTabItem(L(Info_TransferHistoryTab));
-        ThemeInspector::RegisterLastItem("info.transferHistory", L(Info_TransferHistoryTab), "src/main.cpp:24590");
-        DecorateFileInfoTab(chrome, tabTransferOpen);
+        bool tabTransferOpen = (state.settings.infoPages.selected == 2);
+
         if (tabTransferOpen) {
             BeginTransientScrollbarChild("##TransferHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19916,16 +20012,15 @@ void RenderFileInfoPanelTabContents(
             ImGui::PopStyleColor(2);
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 #endif // AURA_BUILD_DIAGNOSTICS
 
         // ---------------------------------------------------------------------
         // Play History - Recent playback history — 始终可见
         // ---------------------------------------------------------------------
-        bool tabPlayOpen = ImGui::BeginTabItem(L(Info_PlayHistoryTab));
-        ThemeInspector::RegisterLastItem("info.playHistory", L(Info_PlayHistoryTab), "src/main.cpp:24636");
-        DecorateFileInfoTab(chrome, tabPlayOpen);
+        bool tabPlayOpen = (state.settings.infoPages.selected == 3);
+
         if (tabPlayOpen) {
             BeginTransientScrollbarChild("##PlayHistoryScroll", ImVec2(0, 0), false, ImGuiWindowFlags_AlwaysVerticalScrollbar);
             ImGui::Indent(10.0f);
@@ -19970,7 +20065,7 @@ void RenderFileInfoPanelTabContents(
             }
             ImGui::Unindent(10.0f);
             ImGui::EndChild();
-            ImGui::EndTabItem();
+
         }
 }
 
@@ -31632,6 +31727,7 @@ void RenderUI(AppState& state) {
                     if (!scanDbOpen) {
                         std::string err = scanDb.getLastError();
                         if (err.empty()) err = "open scan database failed";
+                        DIAG_SYSTEM("Scan", aura::FormatScanDatabaseOpenFailure(scanDbPath, err, foldersToScan).c_str());
                         if (state.isScanTaskCurrent(scanGeneration)) {
                             state.setScanFileKeyStr(LStr::SCAN_FailedFmt, err);
                             state.addScanError(err);
@@ -32419,6 +32515,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             } else if (!quickAutoStarted) {
                 // 手动打开对话框 → 需要选择文件夹
                 if (ImGui::Button(L(Scan_SelectAndScan), ImVec2(220, 0))) {
@@ -32433,6 +32533,10 @@ void RenderUI(AppState& state) {
                     state.scanDialogAutoStart = false;
                     ImGui::CloseCurrentPopup();
                 }
+#if ARIS_PREVIEW_ISOLATION
+                ThemeInspector::RegisterLastItem("info.qaScanCancel",L(Cancel),"src/main.cpp");
+#endif
+
             }
         }
         if (!state.isScanning &&
@@ -33076,6 +33180,12 @@ void RenderUI(AppState& state) {
         static int newDbCacheMode = (int)WaveformCachePolicy::Mode::MiniOnly;
         static bool newDbPending = false;
         static bool confirmOverwrite = false;
+#ifdef ARIS_PREVIEW_ISOLATION
+        if (!state.qaNewDbName.empty()) {
+            snprintf(newDbNameBuf, sizeof(newDbNameBuf), "%s", state.qaNewDbName.c_str());
+            state.qaNewDbName.clear();
+        }
+#endif
         if (newDbPending && !state.dbSwitchInProgress) {
             newDbPending = false;
             if (state.dbSwitchError.empty()) {
@@ -33151,15 +33261,30 @@ void RenderUI(AppState& state) {
         bool canCreate = nameValid && (!exists || confirmOverwrite);
 
         ImGui::BeginDisabled(!canCreate);
-        if (ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32))) {
+        bool createClicked = ImGui::Button(exists ? L(NewDB_OverwriteCreate) : L(Create), ImVec2(120, 32));
+#ifdef ARIS_PREVIEW_ISOLATION
+        const bool qaCreateClicked = std::exchange(state.qaCreateNewDbNow, false);
+        createClicked = createClicked || (qaCreateClicked && canCreate);
+#endif
+        if (createClicked) {
             if (Platform::FileSystem::IsNetworkPath(dbDir) ||
                 Platform::FileSystem::IsNetworkPath(fullPath)) {
                 newDbError = L(Db_RejectNetworkPath);
             } else {
-            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite)) {
+            auto deferredStart=[&state](bool started, const std::string& error) {
+                if (started) {
+                    newDbError.clear();
+                    newDbPending=true;
+                } else {
+                    newDbError=error.empty() ? state.dbSwitchError : error;
+                    if (newDbError.empty()) newDbError=state.database.getLastError();
+                    if (newDbError.empty()) newDbError=L(Db_CreateNotStarted);
+                }
+            };
+            if (SwitchDatabase(state, fullPath, true, &newDbError, newDbCacheMode, confirmOverwrite, deferredStart)) {
                 newDbError.clear();
                 newDbPending = true;
-            } else {
+            } else if (!state.infoEditSession.awaitingChoice) {
                 if (newDbError.empty()) {
                     newDbError = state.database.getLastError();
                 }
@@ -37216,7 +37341,8 @@ void RenderUI(AppState& state) {
         auto pending = state.memoryBudget->getAndClearPendingEvicted();
         for (const auto& [t, e] : pending) {
             if (t == MemoryBudget::CacheType::Waveform) {
-                ReleaseWaveformEvictedEntry(state, e.key);
+                ReleaseWaveformEvictedEntry(state, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             } else if (t == MemoryBudget::CacheType::Cover) {
                 CoverModule::ReleaseCoverEvictedEntry(e.key);
             }
@@ -40037,28 +40163,23 @@ void RenderUI(AppState& state) {
     // The Info title actions belong to the module shell, so they must be
     // rendered by both the legacy right column and every Dock tree leaf.
     // Keep a fixed reserve so the drag hit area cannot cover either button.
-    constexpr float kInfoTitleActionsWidth = 48.0f;
     auto drawFileInfoTitleActions = [&](AppState& infoState,
                                         const DockModuleShellLayout& shell,
                                         ImDrawList* infoDl) {
+        const float pageAvailableWidth = shell.shellWidth - 28.0f;
+        const float pageWidth = FileInfoPageActionsWidth(infoState, pageAvailableWidth);
+        RenderFileInfoPageActions(infoState,
+            ImVec2(shell.insetL + shell.shellWidth - 28.0f - pageWidth, 0.0f),
+            shell.titleHeight, pageAvailableWidth);
         const float iconBtnSize = 18.0f;
         const float iconPad = 4.0f;
-        const float editIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
-        const float similarIconX = editIconX - iconBtnSize - 2.0f;
+        const float similarIconX = shell.insetL + shell.shellWidth - iconBtnSize - iconPad - 2.0f;
         const float iconY = (shell.titleHeight - iconBtnSize) * 0.5f;
 
-        const bool canEdit = (infoState.currentFileId > 0);
-        const bool isEditing = infoState.metadataEditMode;
         const auto& panelTheme = ThemeColors::current();
         const ImVec4 panelBg = ThemeColors::infoPanelDockBG(panelTheme);
         const ImVec4 iconBase = uiMix(panelTheme.metadataPanelText, panelBg, 0.30f);
-        const ImVec4 iconActive = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.20f);
         const ImVec4 iconHover = uiMix(panelTheme.metadataPanelText, COLOR_ACCENT, 0.34f);
-        const ImU32 iconColor = isEditing
-            ? ImGui::GetColorU32(uiWithAlpha(iconActive, 0.92f))
-            : canEdit
-                ? ImGui::GetColorU32(uiWithAlpha(iconBase, 0.72f))
-                : ImGui::GetColorU32(uiWithAlpha(uiMix(iconBase, panelBg, 0.40f), 0.34f));
         const ImU32 iconHoverColor = ImGui::GetColorU32(uiWithAlpha(iconHover, 0.98f));
 
         ImGui::SetCursorPos(ImVec2(similarIconX, iconY));
@@ -40090,66 +40211,23 @@ void RenderUI(AppState& state) {
         if (similarHovered) aura::ui::Tooltip(L(Similar_OpenTooltip));
         ImGui::PopID();
 
-        ImGui::SetCursorPos(ImVec2(editIconX, iconY));
-        ImGui::PushID("##InfoEditMetaIcon");
-        if (!canEdit && !isEditing) ImGui::BeginDisabled();
-        ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0, 0, 0, 0));
-        ImGui::PushStyleColor(ImGuiCol_ButtonHovered,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.18f), 0.72f));
-        ImGui::PushStyleColor(ImGuiCol_ButtonActive,
-            uiWithAlpha(uiMix(panelBg, ThemeColors::infoPanelAccent(panelTheme), 0.28f), 0.82f));
-        const bool editClicked = ImGui::Button("##editMetaBtn", ImVec2(iconBtnSize, iconBtnSize));
-        const bool editHovered = ImGui::IsItemHovered();
-        ImGui::PopStyleColor(3);
-        {
-            const ImVec2 btnMin = ImGui::GetItemRectMin();
-            const float s = iconBtnSize;
-            const float cx = btnMin.x + s * 0.5f;
-            const float cy = btnMin.y + s * 0.5f;
-            const ImU32 col = editHovered ? iconHoverColor : iconColor;
-            const float thick = 1.4f;
-            const ImVec2 p0(cx + s * 0.28f, cy - s * 0.28f);
-            const ImVec2 p1(cx - s * 0.18f, cy + s * 0.18f);
-            infoDl->AddLine(p0, p1, col, thick);
-            infoDl->AddLine(p1, ImVec2(cx - s * 0.32f, cy + s * 0.32f), col, thick);
-            infoDl->AddLine(ImVec2(cx + s * 0.20f, cy - s * 0.36f),
-                            ImVec2(cx + s * 0.36f, cy - s * 0.20f), col, thick);
-        }
-        if (editClicked) {
-            if (isEditing) {
-                infoState.metadataEditMode = false;
-                infoState.metadataBatchMode = false;
-                infoState.metadataBatchIds.clear();
-            } else if (canEdit) {
-                const bool isMultiSelect = infoState.selectedIndicesSet.size() > 1;
-                infoState.metadataEditMode = true;
-                if (isMultiSelect) {
-                    infoState.metadataBatchMode = true;
-                    infoState.metadataBatchIds.clear();
-                    for (int idx : infoState.selectedIndicesSet) {
-                        if (idx >= 0 && idx < (int)infoState.searchResults.size())
-                            infoState.metadataBatchIds.push_back(infoState.searchResults[idx].id);
-                    }
-                    infoState.metadataDescBuffer[0] = '\0';
-                    infoState.metadataKeywordsBuffer[0] = '\0';
-                    infoState.metadataCategoryBuffer[0] = '\0';
-                } else {
-                    infoState.metadataBatchMode = false;
-                    infoState.metadataEditFileId = infoState.currentFileId;
-                    AudioRecord rec = infoState.database.getFileById(infoState.currentFileId);
-                    strncpy_s(infoState.metadataDescBuffer, sizeof(infoState.metadataDescBuffer), rec.description.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataKeywordsBuffer, sizeof(infoState.metadataKeywordsBuffer), rec.keywords.c_str(), _TRUNCATE);
-                    strncpy_s(infoState.metadataCategoryBuffer, sizeof(infoState.metadataCategoryBuffer), rec.category.c_str(), _TRUNCATE);
-                }
-            }
-        }
-        if (editHovered) {
-            const char* tip = isEditing ? L(Info_ExitEditMode)
-                : (infoState.selectedIndicesSet.size() > 1 ? L(Info_BatchEditMetadata) : L(Info_EditMetadata));
-            HarkenSearch::SetTooltip("%s", tip);
-        }
-        if (!canEdit && !isEditing) ImGui::EndDisabled();
-        ImGui::PopID();
+        return 28.0f + pageWidth;
+    };
+
+    auto drawFloatingInfoTitleActions = [&]() {
+        ImGuiWindow* window = ImGui::GetCurrentWindow();
+        const ImRect title = window->TitleBarRect();
+        const ImVec2 saved = ImGui::GetCursorPos();
+        ThemeInspector::RegisterZone(ImVec2(title.Max.x-title.GetHeight(),title.Min.y),title.Max,
+            "info.close",L(Panel_Hide),"src/main.cpp");
+        DockModuleShellLayout shell;
+        shell.insetL = 0.0f;
+        shell.shellWidth = title.GetWidth() - title.GetHeight() - 4.0f;
+        shell.titleHeight = title.GetHeight();
+        ImGui::PushClipRect(title.Min, title.Max, false);
+        drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+        ImGui::PopClipRect();
+        ImGui::SetCursorPos(saved);
     };
 
     auto pressDockTitle = [&](const char* moduleId, PanelState& panel,
@@ -42457,12 +42535,8 @@ void RenderUI(AppState& state) {
 
 // File table with sortable columns
         const bool needsDbSetup =
+            state.viewMode != ViewMode::Browser &&
             state.startupNeedsDatabaseSetup && !state.database.isOpen();
-        const bool showEmptyResultsSurface =
-            !needsDbSetup && state.searchResults.empty() &&
-            !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-            !(state.totalFileCount == 0);
-        constexpr float kEmptyResultsSurfaceHeight = 180.0f;
         ImGuiTableFlags tableFlags = ImGuiTableFlags_Resizable | ImGuiTableFlags_Reorderable |
                                       ImGuiTableFlags_Hideable |
                                       ImGuiTableFlags_BordersOuter |
@@ -42595,10 +42669,10 @@ void RenderUI(AppState& state) {
             ImGui::Dummy(ImVec2(availW, lineH));
             if (listFont) ImGui::PopFont();
         };
-        const ImVec2 fileTableOuterSize = showEmptyResultsSurface
-            ? ImVec2(0.0f, -kEmptyResultsSurfaceHeight)
-            : ImVec2(0.0f, 0.0f);
-        ImVec2 adjustedFileTableOuterSize = fileTableOuterSize;
+        // UX #109 follow-up (TASK-20261028-NO-EMPTY-SURFACE): the standalone
+        // empty-results surface was removed at the user's request, so the
+        // results table keeps its full height even with zero rows.
+        ImVec2 adjustedFileTableOuterSize = ImVec2(0.0f, 0.0f);
         if (emptyLibraryFileTable) {
             // Dropping BordersOuter would otherwise let the header fill to the independent frame.
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + kResultsTableOuterBorder);
@@ -43440,11 +43514,56 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            // 占位符：仅用 Dummy 保持列宽，不画背景框
                             ImVec2 pos = ImGui::GetCursorScreenPos();
-                            ImGui::Dummy(ImVec2(waveWidth, waveHeight));
-                            float cy = pos.y + waveHeight / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(entry.fullPath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(waveWidth, waveHeight));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = pos.x + playPos * waveWidth;
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, pos.y), ImVec2(x, pos.y + waveHeight),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                                if (MiniWaveformPresentation::CanSeek(false, hasRetained)) {
+                                    ImGui::SetCursorScreenPos(pos);
+                                    ImGui::InvisibleButton(("wavebseek" + std::to_string(i)).c_str(),
+                                                           ImVec2(waveWidth, waveHeight));
+                                    if (ImGui::IsItemActive() || ImGui::IsItemClicked()) {
+                                        const ImVec2 visualMin = ImGui::GetItemRectMin();
+                                        const float visualWidth = ImGui::GetItemRectSize().x;
+                                        const float seekPos = std::clamp(
+                                            (ImGui::GetMousePos().x - visualMin.x) / visualWidth,
+                                            0.0f, 1.0f);
+                                        if (!isCurrentFile) {
+                                            if (ImGui::IsItemClicked()) {
+                                                state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                                state.uiState.miniWaveSeekApplied = true;
+                                                state.uiState.miniWaveSeekTargetPath = entry.fullPath;
+                                                state.uiState.lastMiniWaveSeekPos = seekPos;
+                                                BeginBrowserPathAudition(state, entry, true);
+                                                MarkFilePlayed(state, entry.fullPath, 0, false);
+                                                state.audioEngine.seekToPosition(seekPos);
+                                            }
+                                        } else if (ImGui::IsItemClicked()) {
+                                            state.uiState.pendingMiniWaveSeekPos = -1.0f;
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                            if (!state.audioEngine.isPlaying())
+                                                state.audioEngine.play();
+                                        } else if (std::abs(seekPos - state.uiState.lastMiniWaveSeekPos) > 0.002f) {
+                                            state.uiState.lastMiniWaveSeekPos = seekPos;
+                                            state.audioEngine.seekToPosition(seekPos);
+                                        }
+                                    }
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(waveWidth, waveHeight));
+                                float cy = pos.y + waveHeight / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
                     }
 
@@ -44391,7 +44510,7 @@ void RenderUI(AppState& state) {
                         }
 // F-006: Edit Metadata context entry
                         if (ProductEdition::hasFeature("metadata_edit")) {
-                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry))) {
+                        if (ImGui::MenuItem(L(MetaEdit_ContextEntry),nullptr,false,!state.infoEditSession.active)) {
                             if (isMulti) {
                                 state.metadataBatchMode = true;
                                 state.metadataBatchIds.clear();
@@ -45014,9 +45133,23 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            ImGui::Dummy(ImVec2(cellW, cellH));
-                            float cy = cellMin.y + cellH / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(record.filePath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(cellW, cellH));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = waveLayout.seekXFromNormalized(playPos);
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, cellMin.y), ImVec2(x, cellMin.y + cellH),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(cellW, cellH));
+                                float cy = cellMin.y + cellH / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
 
                         // 3. Mini 波形热区：始终提交 InvisibleButton，避免 rowHovered 导致松手时丢点击；支持按住 scrub
@@ -45462,8 +45595,9 @@ void RenderUI(AppState& state) {
                     LoadMoreResults(state);
                 }
 
-                // UX #109: Empty state guidance is owned by the dedicated empty-database surface.
-                // Keep the results layer empty so it cannot overlap the bottom transport controls.
+                // UX #109: Empty state — the results layer stays empty on
+                // purpose: no row is rendered and no guidance surface is
+                // reserved, so it cannot overlap the bottom transport controls.
 
                 // Apply per-tab scroll restoration only after rows/empty-state
                 // content have established this table's current scroll extent.
@@ -45502,68 +45636,6 @@ void RenderUI(AppState& state) {
         ImGui::PopStyleVar();
         ImGui::PopStyleColor(); // Pop transparent ChildBg for table scroll region
         }
-    }
-
-    // UX #109: Empty state surface — keep guidance in its own bounded child,
-    // outside the results table and above the independent player footer.
-    const bool showStandaloneEmptyResultsSurface =
-        !(state.startupNeedsDatabaseSetup && !state.database.isOpen()) &&
-        state.searchResults.empty() && !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
-        !(state.totalFileCount == 0);
-    constexpr float kStandaloneEmptyResultsSurfaceHeight = 180.0f;
-    if (showStandaloneEmptyResultsSurface) {
-        BeginTransientScrollbarChild(
-            "##EmptyResultsSurface",
-            ImVec2(0.0f, kStandaloneEmptyResultsSurfaceHeight),
-            true,
-            ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
-        const bool _hasKw = (state.searchBuffer[0] != '\0');
-        const bool _hasUserCollectionRules =
-            state.activeUserCollectionIdx >= 0 &&
-            state.activeUserCollectionIdx < static_cast<int>(state.userCollections.size()) &&
-            std::any_of(
-                state.userCollections[state.activeUserCollectionIdx].rules.begin(),
-                state.userCollections[state.activeUserCollectionIdx].rules.end(),
-                [](const AppState::CollectionRule& rule) { return rule.value[0] != '\0'; });
-        const auto _hasActivePillState = [](const auto& pillState) {
-            return std::any_of(
-                pillState.begin(), pillState.end(),
-                [](const auto& entry) { return entry.second != 0; });
-        };
-        const bool _hasFilt = state.folderFilterActive || state.coverFilterActive
-            || !state.selectedFolderPath.empty() || !state.coverFilterPath.empty()
-            || state.categoryFilterBuffer[0] != '\0'
-            || state.artistFilterBuffer[0] != '\0'
-            || !state.artistFilterAlternates.empty()
-            || state.albumFilterBuffer[0] != '\0'
-            || state.formatFilterIndex != 0
-            || state.channelFilterIndex != 0
-            || state.sampleRateFilterIndex != 0
-            || state.minDurationFilter > 0.0f || state.maxDurationFilter > 0.0f
-            || state.minBpmFilter > 0.0f || state.maxBpmFilter > 0.0f
-            || state.keyFilterBuffer[0] != '\0'
-            || state.coverFilterIndex != 0
-            || state.findSameFilenameActive
-            || state.activeSmartCollection != SmartCollection::None
-            || _hasUserCollectionRules
-            || _hasActivePillState(state.genrePillState)
-            || _hasActivePillState(state.instrumentPillState)
-            || !(state.showWAV && state.showMP3 && state.showFLAC && state.showOGG &&
-                 state.showAIFF && state.showM4A && state.showWMA && state.showOther);
-        const bool _dbEmpty = (state.totalFileCount == 0);
-        if (_dbEmpty) {
-            ImGui::TextDisabled("%s", L(Empty_NoFiles));
-        } else if (_hasKw && _hasFilt) {
-            ImGui::TextDisabled(L(Empty_FilterAndSearch), state.searchBuffer);
-        } else if (_hasFilt) {
-            ImGui::TextDisabled("%s", L(Empty_FilterOnly));
-        } else if (_hasKw) {
-            ImGui::TextDisabled(L(Empty_SearchOnly), state.searchBuffer);
-            ImGui::TextDisabled("%s", L(Search_NoResultTips));
-        } else {
-            ImGui::TextDisabled("%s", L(Empty_NoResults));
-        }
-        ImGui::EndChild();
     }
 
     // F-034 Relink: merge background candidate results + render inline banner
@@ -45696,13 +45768,7 @@ void RenderUI(AppState& state) {
                     state.waveformCache.erase(state.waveformCache.begin());
                 }
                 // Invalidate stale GPU texture so it regenerates from new data
-                auto texIt = g_miniWaveTextureCache.find(res.filePath);
-                if (texIt != g_miniWaveTextureCache.end()) {
-                    if (texIt->second.textureId != 0) {
-                        DeleteMiniWaveTexture(texIt->second.textureId);
-                    }
-                    g_miniWaveTextureCache.erase(texIt);
-                }
+                InvalidateMiniWaveTextureAfterFrame(res.filePath);
                 state.waveformCache[res.filePath] = std::move(res.waveform);
                 state.waveformFailed.erase(res.filePath);
                 state.waveformMiniCacheMiss.erase(res.filePath);
@@ -45965,7 +46031,7 @@ void RenderUI(AppState& state) {
             kTitleText);
 
 // 标题栏右上角：编辑元数据图标按钮
-        drawFileInfoTitleActions(state, rightShell, dl);
+        const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, rightShell, dl);
 
         // Right-click menu on title bar (remaining area)
         ImGui::SetCursorPos(ImVec2(rightShell.insetL, rightShell.insetT));
@@ -51077,9 +51143,11 @@ void RenderUI(AppState& state) {
         const float labelWidth = ImGui::CalcTextSize(window->Name, nullptr, true).x + 16.0f;
         const ImRect label(title.Min, ImVec2(
             (std::min)(title.Min.x + labelWidth, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
+        const float infoActionsWidth = std::strcmp(moduleId, "info") == 0
+            ? 28.0f + FileInfoPageActionsWidth(state, title.GetWidth()-title.GetHeight()-4.0f-28.0f) : 0.0f;
         const ImRect dockDragLabel(title.Min, ImVec2(
-            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f), title.Max.y));
-        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered());
+            (std::max)(title.Min.x, title.Max.x - title.GetHeight() - 4.0f - infoActionsWidth), title.Max.y));
+        drawDockTitleFeedback(moduleId, title, label, true, ImGui::IsWindowHovered() && dockDragLabel.Contains(ImGui::GetMousePos()));
 #if ARIS_PREVIEW_ISOLATION && AURA_BUILD_DIAGNOSTICS && !AURA_INTERNAL_BETA
         RecordDockQaPanel(moduleId, panel, pos, size, title, label);
 #endif
@@ -51366,6 +51434,7 @@ void RenderUI(AppState& state) {
             if (ImGuiViewport* vp = ImGui::GetWindowViewport()) {
                 aura::ui::dock::BindNativeCaptionModule(vp->PlatformHandle, "info");
             }
+            drawFloatingInfoTitleActions();
             driveFloatingDockDrag("info", state.panelFileInfo, pos, size);
 
             if (ImGui::BeginPopupContextItem("##FloatFileInfoMenu")) {
@@ -51567,7 +51636,7 @@ void RenderUI(AppState& state) {
                 const DockModuleShellLayout shell = drawDockModuleShell(
                     ImGui::GetWindowDrawList(), pos, size.x, size.y,
                     L(View_InfoPanel), bodyBg, kTitleText);
-                drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
+                const float kInfoTitleActionsWidth = drawFileInfoTitleActions(state, shell, ImGui::GetWindowDrawList());
                 ImGui::SetCursorPos(ImVec2(shell.insetL, shell.insetT));
                 ImGui::InvisibleButton("##DockedFileInfoTitleBar",
                     ImVec2((std::max)(1.0f, shell.shellWidth - kInfoTitleActionsWidth), shell.titleHeight));
@@ -52336,6 +52405,7 @@ void RenderUI(AppState& state) {
         const bool detachedInfoVisible = beginSharedDockWindowHost(
             L(Panel_FileInfoTitle), &state.fileInfoDetached, ImGuiWindowFlags_MenuBar);
         if (detachedInfoVisible) {
+            drawFloatingInfoTitleActions();
             if (ImGui::BeginMenuBar()) {
                 if (ImGui::BeginMenu(L(Menu_DockTo))) {
                     if (ImGui::MenuItem(L(Panel_DockToLeft))) {

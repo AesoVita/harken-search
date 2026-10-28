@@ -802,6 +802,8 @@ aura_set_test_labels(TestTrigramE2E db)
 
 add_executable(TestBrowserSearch EXCLUDE_FROM_ALL
     tests/test_browser_search.cpp
+    src/PathUtils.cpp
+    tests/playlist_folder_tree_path_conversion_stub.cpp
 )
 if(MSVC)
     target_compile_options(TestBrowserSearch PRIVATE /W3 /utf-8)
@@ -5398,6 +5400,24 @@ endif()
 
 # dB-norm helper for Wwise-style RMS silhouette rendering (pure math, no deps).
 
+add_executable(TestCoverWallPageDedupe EXCLUDE_FROM_ALL
+    tests/test_cover_wall_page_dedupe.cpp
+    src/CoverWallPageResultBuilder.cpp
+    src/PathUtils.cpp
+)
+target_include_directories(TestCoverWallPageDedupe PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/src
+    ${CMAKE_CURRENT_SOURCE_DIR}/thirdparty
+    ${SQLITE_DIR}
+    ${IMGUI_DIR}
+)
+target_compile_features(TestCoverWallPageDedupe PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestCoverWallPageDedupe PRIVATE /utf-8)
+endif()
+add_test(NAME CoverWallPageDedupe COMMAND TestCoverWallPageDedupe)
+aura_set_test_labels(CoverWallPageDedupe db)
+
 add_executable(TestDatabaseFeatures EXCLUDE_FROM_ALL
     tests/test_database_features.cpp
     tests/test_database_link_stubs.cpp
@@ -5927,6 +5947,22 @@ if(MSVC)
 endif()
 add_test(NAME TestMiniWaveformScheduler COMMAND TestMiniWaveformScheduler)
 aura_set_test_labels(TestMiniWaveformScheduler core)
+
+add_executable(TestMiniWaveformPresentation EXCLUDE_FROM_ALL
+    tests/test_mini_waveform_presentation.cpp
+)
+target_include_directories(TestMiniWaveformPresentation PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+if(MSVC)
+    target_compile_options(TestMiniWaveformPresentation PRIVATE /W3 /utf-8)
+    set_target_properties(TestMiniWaveformPresentation PROPERTIES
+        LINK_FLAGS_RELEASE "/SUBSYSTEM:CONSOLE"
+        LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE"
+    )
+endif()
+add_test(NAME TestMiniWaveformPresentation COMMAND TestMiniWaveformPresentation)
+aura_set_test_labels(TestMiniWaveformPresentation core)
 
 add_executable(TestMiniRenderMath EXCLUDE_FROM_ALL
     tests/test_mini_render_math.cpp
@@ -6571,6 +6607,18 @@ if(MSVC)
 endif()
 add_test(NAME TestEmergencyFileWriter COMMAND TestEmergencyFileWriter)
 aura_set_test_labels(TestEmergencyFileWriter core)
+
+add_executable(TestScanDatabaseOpenDiagnostics EXCLUDE_FROM_ALL
+    tests/test_scan_database_open_diagnostics.cpp
+    src/ScanDatabaseOpenDiagnostics.cpp
+)
+target_include_directories(TestScanDatabaseOpenDiagnostics PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_features(TestScanDatabaseOpenDiagnostics PRIVATE cxx_std_17)
+if(MSVC)
+    target_compile_options(TestScanDatabaseOpenDiagnostics PRIVATE /W3 /utf-8)
+endif()
+add_test(NAME TestScanDatabaseOpenDiagnostics COMMAND TestScanDatabaseOpenDiagnostics)
+aura_set_test_labels(TestScanDatabaseOpenDiagnostics core)
 
 add_executable(TestDiagnosticsLoggerPersistence EXCLUDE_FROM_ALL
     tests/test_diagnostics_logger_persistence.cpp
@@ -8171,6 +8219,21 @@ if(WIN32)
         target_link_libraries(${_system_target} PRIVATE advapi32 crypt32 shell32 ole32 comdlg32 shlwapi)
     endforeach()
 endif()
+
+add_executable(TestInfoPageNavigation tests/test_info_page_navigation.cpp)
+add_executable(TestInfoEditSession tests/test_info_edit_session.cpp)
+target_include_directories(TestInfoEditSession PRIVATE src)
+add_test(NAME InfoEditSession COMMAND TestInfoEditSession)
+aura_set_test_labels(InfoEditSession ui info)
+add_executable(TestInfoArtworkFooterLayout tests/test_info_artwork_footer_layout.cpp
+    thirdparty/imgui/imgui.cpp thirdparty/imgui/imgui_draw.cpp
+    thirdparty/imgui/imgui_tables.cpp thirdparty/imgui/imgui_widgets.cpp)
+target_include_directories(TestInfoArtworkFooterLayout PRIVATE src thirdparty/imgui)
+add_test(NAME InfoArtworkFooterLayout COMMAND TestInfoArtworkFooterLayout)
+aura_set_test_labels(InfoArtworkFooterLayout ui info)
+target_include_directories(TestInfoPageNavigation PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+add_test(NAME InfoPageNavigation COMMAND TestInfoPageNavigation)
+aura_set_test_labels(InfoPageNavigation ui info)
 
 foreach(_standalone_localized_target IN ITEMS
     TestMetadataWriterImageLoad TestShortcutPresets TestTransferEmbed TestConsentManager)
