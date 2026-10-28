@@ -38517,6 +38517,19 @@ void RenderUI(AppState& state) {
                         state.filterQueryState = FilterQueryState::Idle;
                 }
             }
+            static bool searchHintHidden = false;
+            static bool hasSearchInputRect = false;
+            static ImVec2 searchInputRectMin(0.0f, 0.0f);
+            static ImVec2 searchInputRectMax(0.0f, 0.0f);
+            const bool searchFocusRequested = state.searchSuggestRequestFocus || state.focusSearchBar;
+            bool searchClickStarting = false;
+            if (hasSearchInputRect && ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                const ImVec2 mouse = ImGui::GetMousePos();
+                searchClickStarting = mouse.x >= searchInputRectMin.x && mouse.x < searchInputRectMax.x
+                    && mouse.y >= searchInputRectMin.y && mouse.y < searchInputRectMax.y;
+            }
+            const bool hideSearchPlaceholder = searchHintHidden || searchClickStarting || searchFocusRequested;
+
             if (state.searchSuggestRequestFocus) {
                 if (!state.searchSuggestPendingText.empty()) {
                     strncpy_s(state.searchBuffer, sizeof(state.searchBuffer), state.searchSuggestPendingText.c_str(), _TRUNCATE);
@@ -38561,7 +38574,9 @@ void RenderUI(AppState& state) {
                 ImGui::PushStyleColor(ImGuiCol_Border, kUseLightSoftChromeTheme
                     ? kLightSoftBorder
                     : kToolbarSearchBorder); colorPushes++;
-                ImGui::PushStyleColor(ImGuiCol_TextDisabled, kUseLightSoftChromeTheme ? kLightSoftHintText : kToolbarSearchHintText); colorPushes++;
+                ImGui::PushStyleColor(ImGuiCol_TextDisabled, hideSearchPlaceholder
+                    ? ImVec4(0, 0, 0, 0)
+                    : (kUseLightSoftChromeTheme ? kLightSoftHintText : kToolbarSearchHintText)); colorPushes++;
             }
 
             // Reclaim search focus after popup input.
@@ -38590,6 +38605,10 @@ void RenderUI(AppState& state) {
             g_searchBarFocusedForShortcuts = searchFocused;
             searchRectMin = ImGui::GetItemRectMin();
             searchRectMax = ImGui::GetItemRectMax();
+            searchHintHidden = searchFocused;
+            searchInputRectMin = searchRectMin;
+            searchInputRectMax = searchRectMax;
+            hasSearchInputRect = true;
             if (ThemeInspector::IsCollecting()) {
                 ThemeInspector::RegisterZone(searchRectMin, searchRectMax, "searchButtonBG", L(ThemeCol_searchButtonBG));
             }
