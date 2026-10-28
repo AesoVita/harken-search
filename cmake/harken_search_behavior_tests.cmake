@@ -6123,6 +6123,9 @@ aura_set_test_labels(TestEmptyStateContrast ui)
 add_test(NAME TestEmptyStateThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
     -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_empty_state_theme_audit.py)
 aura_set_test_labels(TestEmptyStateThemeAudit ui)
+add_test(NAME TestInfoFamilyThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_info_family_theme_audit.py)
+aura_set_test_labels(TestInfoFamilyThemeAudit ui)
 target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
 add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
 aura_set_test_labels(TestTransportContrast ui)

@@ -69,10 +69,13 @@ int main() {
     auto* draw=ImGui::GetWindowDrawList();
     const auto position=ImGui::GetCursorScreenPos();
     const int first=draw->VtxBuffer.Size;
+    const int commandsBefore=draw->CmdBuffer.Size;
     TransportVisualAudit::Request();
     TransportVisualAudit::Begin(0,position,ImVec2(position.x+200,position.y+100),IM_COL32_WHITE);
     TransportValueText::Draw(draw,position,"107%",ImVec4(.4f,.4f,.4f,1),
         [&](float x) { return x<position.x+12 ? ImVec4(.95f,.95f,.95f,1) : ImVec4(.02f,.2f,.2f,1); },"volume.label");
+    Check(draw->CmdBuffer.Size <= commandsBefore + 1,
+        "adaptive percentage glyphs share a draw command across fill colors");
     const auto white=ImGui::GetFontTexUvWhitePixel();
     bool onlyGlyphs=draw->VtxBuffer.Size>first;
     for(int i=first;i<draw->VtxBuffer.Size;++i)

@@ -405,7 +405,7 @@ void OpenSimilarSoundsWindow(AppState& state) {
     state.panelSimilarSounds.visible = true;
     state.panelSimilarSounds.floating = true;
     state.panelSimilarSounds.wasDragging = false;
-    state.panelSimilarSounds.floatW = std::max(state.panelSimilarSounds.floatW, 640.0f);
+    if (state.panelSimilarSounds.floatW < 220.0f) state.panelSimilarSounds.floatW = 640.0f;
     if (state.panelSimilarSounds.floatH < 180.0f) state.panelSimilarSounds.floatH = 560.0f;
     if (state.panelSimilarSounds.floatX < 80.0f) state.panelSimilarSounds.floatX = 420.0f;
     if (state.panelSimilarSounds.floatY < 40.0f) state.panelSimilarSounds.floatY = 120.0f;

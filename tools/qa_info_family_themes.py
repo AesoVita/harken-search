@@ -21,6 +21,18 @@ from qa_transport_themes import Driver, contrast, window_api
 THEMES = [(0, "经典深色"), (1, "极光青"), (2, "深海军蓝"),
           (3, "海玻璃"), (10, "柔雾粉")]
 
+# Reviewed 1:1 glyph-core colors for the approved built-in palettes. These are
+# independent expectations, never inferred from the crop being tested. Update
+# them only after intentional palette changes and visual review. Columns:
+# title, secondary label, filename, enabled action, disabled action, Info hint.
+EXPECTED_INK = {
+    0: [(193,201,209), (139,150,165), (230,236,243), (0,0,0), (10,14,17), (153,153,153)],
+    1: [(190,202,215), (139,154,172), (226,235,244), (11,11,11), (15,25,27), (155,155,155)],
+    2: [(245,248,252), (229,236,244), (245,248,252), (0,0,0), (10,14,18), (229,236,244)],
+    3: [(82,107,171), (85,96,127), (1,64,95), (0,24,36), (20,37,46), (84,95,125)],
+    10: [(111,88,100), (107,84,96), (59,41,49), (59,41,49), (78,61,69), (104,82,94)],
+}
+
 
 def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
@@ -90,6 +102,19 @@ def resize_similar(driver, target_width):
         time.sleep(.15)
 
 
+def verify_reopen_width(driver, width):
+    """Exercise the real open path with a previously selected valid width."""
+    driver.command({"cmd": "similar_index", "action": "close"})
+    time.sleep(.15)
+    driver.command({"cmd": "similar_index", "action": "open",
+                    "width": width, "height": 620, "floating": True})
+    time.sleep(.2)
+    actual = driver.command({"cmd": "dock_state"})["panels"]["similar-sounds"]["w"]
+    if abs(actual - width) > 2:
+        raise AssertionError(f"Reopening changed selected width {width} to {actual}")
+    return {"requested_width": width, "reopened_width": actual}
+
+
 def comparison(output, results, scenario):
     # Keep screenshot pixels at 1:1; annotations sit outside the real windows.
     height = 292 if scenario != "narrow" else 380
@@ -132,7 +157,9 @@ def audit_captures(output, report):
             # starts directly inside the content, without the former tab row.
             ("info", "Info 空态提示", (20, 50, 165, 68)),
         ]
-        for module, label, bounds in samples:
+        expected = EXPECTED_INK[row["theme"]]
+        ink_indices = [0, 1, 2, 4 if row["scenario"] == "empty" else 3, 5]
+        for (module, label, bounds), ink_index in zip(samples, ink_indices):
             source_path = Path(row["crops"][module]["path"])
             if digest(source_path) != row["crops"][module]["sha256"]:
                 raise RuntimeError(f"Screenshot changed: {source_path}")
@@ -141,12 +168,32 @@ def audit_captures(output, report):
             background, background_count = counts.most_common(1)[0]
             if background_count / (crop.width * crop.height) < .4:
                 raise RuntimeError(f"Expected a flat text surface for {source_path}: {label}")
-            ratio, ink = max((contrast([*color, 255], [*background, 255]), color) for color in counts)
+            wanted = expected[ink_index]
+            # Small Latin glyphs can have few fully opaque pixels. Accept only
+            # their expected antialias blend, not arbitrary bright colors.
+            delta = [wanted[i] - background[i] for i in range(3)]
+            length2 = sum(v * v for v in delta)
+            coverage = {}
+            for color in counts:
+                alpha = sum((color[i] - background[i]) * delta[i] for i in range(3)) / max(length2, 1)
+                if .6 <= alpha <= 1.03 and max(abs(color[i] -
+                        (background[i] + min(alpha, 1) * delta[i])) for i in range(3)) <= 3:
+                    coverage[color] = alpha
+            matched = Counter({color: counts[color] for color in coverage})
+            positions = [(x, y) for y in range(crop.height) for x in range(crop.width)
+                         if crop.getpixel((x, y)) in matched]
+            enough_ink = (len(positions) >= 8 and len({x for x, _ in positions}) >= 4
+                          and len({y for _, y in positions}) >= 3)
+            cores = [color for color in matched if coverage[color] >= .9]
+            enough_ink = enough_ink and bool(cores)
+            ink = max(cores, key=lambda color: coverage[color]) if enough_ink else None
+            ratio = contrast([*ink, 255], [*background, 255]) if enough_ink else 0.0
             checks.append({"theme": row["theme"], "scenario": row["scenario"], "module": module,
                            "label": label, "bounds": bounds, "foreground_rgb": ink,
+                           "expected_foreground_rgb": wanted, "matching_pixels": len(positions),
                            "background_rgb": background, "ratio": round(ratio, 3),
-                           "pass": ratio >= 4.5, "source": str(source_path)})
-    audit = {"method": "Real 1:1 screenshot samples: most frequent flat background and highest-contrast glyph core; antialiased edges are not treated as a new text color.",
+                           "pass": enough_ink and ratio >= 4.5, "source": str(source_path)})
+    audit = {"method": "Real 1:1 crops matched to reviewed glyph colors or their antialias blend (RGB tolerance 3, coverage >= 0.6): at least 8 pixels across 4 columns/3 rows and a core with coverage >= 0.9. Contrast uses the strongest matching glyph core and flat background, never an arbitrary bright pixel. This is a targeted pixel guard, not OCR.",
              "scope": "Window title, current-audio label, filename/empty text, enabled/disabled find button, Info artwork empty message. Other controls need separate coverage.",
              "checks": checks, "failed": [c for c in checks if not c["pass"]],
              "minimum": min(c["ratio"] for c in checks)}
@@ -223,6 +270,9 @@ def main():
                   "scope": "Floating Info and Similar Sounds: empty, 50 results, 420px narrow. Screenshots require visual review."}
         (args.output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2), encoding="utf-8")
         audit_captures(args.output, report)
+        reopen_checks = [verify_reopen_width(driver, width) for width in (420, 640, 800)]
+        (args.output / "reopen-widths.json").write_text(
+            json.dumps(reopen_checks, indent=2), encoding="utf-8")
         print(json.dumps({"scenarios": len(results), "comparisons": comparisons}, ensure_ascii=False))
     finally:
         driver.command({"cmd": "set_theme", "theme": initial_theme})
