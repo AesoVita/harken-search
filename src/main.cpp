@@ -6118,6 +6118,7 @@ void LoadAppSettings(AppState& state) {
             FolderShortcut sc;
             sc.name = kv[prefix + "name"];
             sc.path = kv[prefix + "path"];
+            sc.openInBrowser = ParseBool(kv[prefix + "openInBrowser"], false);
             if (sc.name.empty() || sc.path.empty()) continue;
             state.folderShortcuts.push_back(std::move(sc));
         }
@@ -6636,6 +6637,7 @@ bool TrySaveAppSettings(const AppState& state) {
             std::string prefix = "folderShortcut" + std::to_string(i) + "_";
             items.push_back({prefix + "name", sc.name});
             items.push_back({prefix + "path", sc.path});
+            items.push_back({prefix + "openInBrowser", sc.openInBrowser ? "1" : "0"});
         }
     }
 
@@ -10854,7 +10856,7 @@ static std::string ResolveBrowserEntryFolderPath(const FileEntry& entry) {
     }
 }
 
-static bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& folderPath) {
+bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& folderPath) {
     if (folderPath.empty()) {
         return false;
     }
@@ -10863,11 +10865,25 @@ static bool AddBrowserFolderToQuickPaths(AppState& state, const std::string& fol
     if (folderName.empty()) {
         folderName = folderPath;
     }
-    if (!AddFolderShortcutIfMissing(state, folderName, folderPath)) {
+    if (!AddFolderShortcutIfMissing(state, folderName, folderPath, true)) {
         return false;
     }
     MarkSettingsDirty(state);
     return true;
+}
+
+void OpenFolderShortcut(AppState& state, const FolderShortcut& shortcut) {
+    if (shortcut.openInBrowser) {
+        state.viewMode = ViewMode::Browser;
+        NavigateBrowserToFolder(state, shortcut.path, state.fileBrowser.getScope());
+    } else {
+        state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(shortcut.path);
+        state.folderFilterActive = true;
+        state.viewMode = ViewMode::Database;
+        state.preferDeferredCountForNextRefresh = true;
+        RefreshSearchResults(state, true);
+    }
+    state.syncToTab();
 }
 
 static void QueueBrowserFolderScan(AppState& state, const std::string& folderPath) {
@@ -15480,15 +15496,14 @@ static void RenderSidebarPanelContent(AppState& state, const char* idScope) {
 
                 // 渲染快捷项
                 // T2.6: 比较两侧都过 canonical (sc.path 来自 facet 可能是 raw)
-                bool isSelected = (state.folderFilterActive && state.selectedFolderPath == HarkenSearch::CanonicalFolderPath(sc.path));
+                const std::string shortcutPath = HarkenSearch::CanonicalFolderPath(sc.path);
+                bool isSelected = sc.openInBrowser
+                    ? (state.viewMode == ViewMode::Browser &&
+                       HarkenSearch::CanonicalFolderPath(state.fileBrowser.getCurrentPath()) == shortcutPath)
+                    : (state.viewMode == ViewMode::Database && state.folderFilterActive &&
+                       state.selectedFolderPath == shortcutPath);
                 if (ImGui::Selectable(sc.name.c_str(), isSelected)) {
-                    state.selectedFolderPath = HarkenSearch::CanonicalFolderPath(sc.path);
-                    state.folderFilterActive = true;
-                    state.viewMode = ViewMode::Database;
-                    state.preferDeferredCountForNextRefresh = true;
-                    // 使用已有的异步刷新机制
-                    RefreshSearchResults(state, true);
-                    state.syncToTab();
+                    OpenFolderShortcut(state, sc);
                 }
 
                 // 右键菜单：删除快捷方式
@@ -42380,8 +42395,10 @@ void RenderUI(AppState& state) {
 
 // File table with sortable columns
         const bool needsDbSetup =
+            state.viewMode != ViewMode::Browser &&
             state.startupNeedsDatabaseSetup && !state.database.isOpen();
         const bool showEmptyResultsSurface =
+            state.viewMode != ViewMode::Browser &&
             !needsDbSetup && state.searchResults.empty() &&
             !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
             !(state.totalFileCount == 0);
@@ -45430,6 +45447,7 @@ void RenderUI(AppState& state) {
     // UX #109: Empty state surface — keep guidance in its own bounded child,
     // outside the results table and above the independent player footer.
     const bool showStandaloneEmptyResultsSurface =
+        state.viewMode != ViewMode::Browser &&
         !(state.startupNeedsDatabaseSetup && !state.database.isOpen()) &&
         state.searchResults.empty() && !state.asyncSearchInProgress && !state.searchDebounce.isPending() &&
         !(state.totalFileCount == 0);
