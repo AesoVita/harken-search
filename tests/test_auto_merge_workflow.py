@@ -25,16 +25,20 @@ class AutoMergeWorkflowTests(unittest.TestCase):
         condition = job["if"]
         self.assertIn("draft == false", condition)
         self.assertIn("auto-merge-ok", condition)
+        self.assertIn("base.ref == 'main'", condition)
+        self.assertIn("base.ref == 'qa/current'", condition)
+        self.assertEqual(condition.count("base.ref =="), 2)
         self.assertNotIn("head.ref != 'qa/current'", condition)
         self.assertNotIn("qa-approved", condition)
 
         verify_step = job["steps"][1]
         self.assertEqual(
             verify_step["run"],
-            'python tools/verify_github_main_protection.py --repository "$REPOSITORY"',
+            'python tools/verify_public_repository.py --repository "$REPOSITORY" --branch "$PR_BASE"',
         )
         self.assertEqual(verify_step["env"]["GH_TOKEN"], "${{ github.token }}")
         self.assertEqual(verify_step["env"]["REPOSITORY"], "${{ github.repository }}")
+        self.assertEqual(verify_step["env"]["PR_BASE"], "$" + "{{ github.event.pull_request.base.ref }}")
 
         merge_step = job["steps"][2]
         self.assertEqual(merge_step["run"], 'gh pr merge "$PR_URL" --auto --merge')

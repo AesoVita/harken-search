@@ -12,10 +12,11 @@ jobs:
   enable-auto-merge:
     # Auto-merge is only a queue behind a remotely enforced gate.  The read-only
     # verifier deliberately fails closed when the repository administrator has
-    # not yet installed the required main ruleset.
+    # not yet installed the required ruleset for the PR target branch.
     if: >-
       github.event.pull_request.draft == false &&
-      github.event.pull_request.base.ref == 'main' &&
+      (github.event.pull_request.base.ref == 'main' ||
+       github.event.pull_request.base.ref == 'qa/current') &&
       contains(github.event.pull_request.labels.*.name, 'auto-merge-ok')
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -23,11 +24,12 @@ jobs:
       - name: Check out verifier
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Verify main required check is enforced
+      - name: Verify target branch required checks are enforced
         env:
           GH_TOKEN: ${{ github.token }}
           REPOSITORY: ${{ github.repository }}
-        run: python tools/verify_public_repository.py --repository "$REPOSITORY"
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+        run: python tools/verify_public_repository.py --repository "$REPOSITORY" --branch "$PR_BASE"
 
       - name: Queue merge after required checks
         env:
