@@ -45,6 +45,13 @@ int main() {
     for(auto role:{ImGuiCol_ButtonActive,ImGuiCol_TabActive,ImGuiCol_TabHovered,ImGuiCol_HeaderActive})
         check(Ratio(s.interfaceText,colors[role])>=4.5,"active button and tab text");
     auto tabInk=MistBlueChrome::ResultsTabText(s);
+    for(int state=0;state<3;++state) {
+        auto on=MistBlueChrome::EqState(s,s.transportBarBG,true,state>0,state==2);
+        auto off=MistBlueChrome::EqState(s,s.transportBarBG,false,state>0,state==2);
+        check(Ratio(on.button,off.button)>=3.0,"EQ active/bypass surfaces stay distinct across interaction states");
+        check(Ratio(on.ink,on.button)>=4.5 && Ratio(off.ink,off.button)>=4.5,"EQ state text contrast");
+        check(Ratio(on.signal,s.transportBarBG)>=3.0 && Ratio(off.signal,s.transportBarBG)>=3.0,"EQ signal remains readable in both states");
+    }
     check(Ratio(tabInk,s.resultsTabActive)>=4.5,"selected result tab text");
     return failures?1:0;
 }

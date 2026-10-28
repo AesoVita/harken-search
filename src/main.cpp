@@ -24914,7 +24914,7 @@ int g_magicEqQaActiveDragPart = 0;
 #endif
 
 static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sampleRate,
-                           bool& saveSettingsNow, const ImVec4& transportSurface) {
+                           bool& saveSettingsNow, const ImVec4& transportSurface, bool navyStateContrast) {
     ImGuiWindow* window = ImGui::GetCurrentWindow();
     if (!window || window->SkipItems) return false;
     settings.widgetWidth = std::clamp(settings.widgetWidth, 120.0f, 1600.0f);
@@ -25327,7 +25327,8 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     const ImU32 baseText = ImGui::GetColorU32(primaryText);
     const ImU32 muted = ImGui::GetColorU32(TransportContrast::ForSurface(
         ImVec4(primaryText.x, primaryText.y, primaryText.z, .48f), transportSurface, 4.7));
-    const ImVec4 statusColor = TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
+    const auto navyEq = MistBlueChrome::EqState(theme, transportSurface, settings.enabled, toggleHit, toggleHit && held);
+    const ImVec4 statusColor = navyStateContrast ? navyEq.signal : TransportContrast::ForSurface(!settings.enabled ? theme.interfaceText
         : (settings.mode == MagicEQMode::Notch ? theme.waveformSelectionEdge : theme.controlAccent), transportSurface, 3.2);
     const ImU32 status = ImGui::GetColorU32(statusColor);
     ImDrawList* draw = window->DrawList;
@@ -25335,11 +25336,11 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     // have their own shapes. This keeps the full player bar visually continuous.
     const bool markHover = toggleHit;
     const bool markPressed = markHover && held;
-    const ImVec4 markBackground = !settings.enabled
+    const ImVec4 markBackground = navyStateContrast ? navyEq.button : !settings.enabled
         ? ImLerp(transportSurface, theme.chromeBorder, markHover ? 0.38f : 0.23f)
         : ImLerp(transportSurface, theme.controlAccent,
                  markPressed ? 0.06f : (markHover ? 0.17f : 0.11f));
-    const ImU32 markColor = ImGui::GetColorU32(TransportContrast::ForSurface(settings.enabled
+    const ImU32 markColor = navyStateContrast ? ImGui::GetColorU32(navyEq.ink) : ImGui::GetColorU32(TransportContrast::ForSurface(settings.enabled
         ? ImLerp(theme.controlAccent, primaryText, markHover && !markPressed ? .23f : 0.f)
         : ImGui::ColorConvertU32ToFloat4(muted),
         TransportContrast::Over(markBackground, transportSurface), 4.7));
@@ -25469,15 +25470,22 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
             }
         }
     }
-    draw->AddLine(ImVec2(railLeft, railY), ImVec2(railRight, railY), muted, 2.0f);
+    draw->AddLine(ImVec2(railLeft, railY), ImVec2(railRight, railY),
+                  navyStateContrast && !settings.enabled ? status : muted,
+                  navyStateContrast && !settings.enabled ? 1.0f : 2.0f);
+    const float bandAlpha = navyStateContrast && !settings.enabled ? 0.f : (settings.enabled ? .42f : .20f);
     draw->AddRectFilled(ImVec2(leftX, railY - 4.5f), ImVec2(rightX, railY + 4.5f),
                         ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
-                                                   settings.enabled ? 0.42f : 0.20f)), 4.5f);
-    draw->AddLine(ImVec2(leftX, railY), ImVec2(rightX, railY), status, 2.0f);
+                                                   bandAlpha)), 4.5f);
+    draw->AddLine(ImVec2(leftX, railY), ImVec2(rightX, railY), status,
+                  navyStateContrast ? (settings.enabled ? 3.0f : 1.0f) : 2.0f);
     const ImVec4 bandSurface = TransportContrast::Over(
-        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .42f : .20f), transportSurface);
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, bandAlpha), transportSurface);
     const ImU32 centerDotColor = ImGui::GetColorU32(TransportContrast::ForSurface(primaryText, bandSurface, 3.2));
-    draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, centerDotColor, 12);
+    if (navyStateContrast && !settings.enabled)
+        draw->AddCircle(ImVec2(centerX, railY), 3.2f, centerDotColor, 12, 1.0f);
+    else
+        draw->AddCircleFilled(ImVec2(centerX, railY), 3.2f, centerDotColor, 12);
     const auto drawVerticalGrip = [&](float x, bool highlighted, const char* auditId) {
         const ImU32 gripFill = highlighted ? ImGui::GetColorU32(TransportContrast::ForSurface(
             theme.controlAccent, transportSurface, 3.2)) : status;
@@ -25546,13 +25554,14 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
     }
 
     const float modeLeft = pos.x + width - statusWidth;
+    const auto navyMode = MistBlueChrome::EqState(theme, transportSurface, settings.enabled, modeHit, modeHit && held);
+    const ImVec4 modeBackground = navyStateContrast ? navyMode.button : TransportContrast::Over(
+        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
     draw->AddRectFilled(ImVec2(modeLeft + 1.0f, pos.y + 4.0f),
                         ImVec2(pos.x + width - 4.0f, pos.y + 28.0f),
-                        ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
+                        navyStateContrast ? ImGui::GetColorU32(modeBackground) : ImGui::GetColorU32(ImVec4(statusColor.x, statusColor.y, statusColor.z,
                                                    settings.enabled ? 0.16f : 0.10f)), 4.0f);
-    const ImVec4 modeBackground = TransportContrast::Over(
-        ImVec4(statusColor.x, statusColor.y, statusColor.z, settings.enabled ? .16f : .10f), transportSurface);
-    const ImU32 modeInk = ImGui::GetColorU32(TransportContrast::ForSurface(
+    const ImU32 modeInk = navyStateContrast ? ImGui::GetColorU32(navyMode.ink) : ImGui::GetColorU32(TransportContrast::ForSurface(
         settings.enabled ? statusColor : ImGui::ColorConvertU32ToFloat4(muted), modeBackground, 4.7));
     const char* modeLabel = GetMagicEQModeLabel(settings.enabled, static_cast<int>(settings.mode));
     const float modeTextWidth = ImGui::CalcTextSize(modeLabel).x;
@@ -25569,14 +25578,15 @@ static bool DrawMagicEQBar(const char* strId, MagicEQSettings& settings, int sam
                        ImVec2(pos.x + width - 3.0f, pos.y + 28.0f), true);
     if (modeIconOnly) {
         const float iconX = modeLeft + (statusWidth - 18.0f) * 0.5f;
-        TransportVisualAudit::Record("eq.mode", false, settings.enabled ? status : muted,
+        const ImU32 modeShape = navyStateContrast ? modeInk : (settings.enabled ? status : muted);
+        TransportVisualAudit::Record("eq.mode", false, modeShape,
             ImGui::GetColorU32(modeBackground), ImVec2(iconX, pos.y + 8), ImVec2(iconX + 18, pos.y + 24));
         if (settings.enabled)
             drawSteepnessCurve(draw, ImVec2(iconX, pos.y + 16.0f), settings.mode,
-                               settings.steepness, status);
+                               settings.steepness, modeShape);
         else
             draw->AddLine(ImVec2(iconX, pos.y + 16.0f),
-                          ImVec2(iconX + 18.0f, pos.y + 16.0f), muted, 1.5f);
+                          ImVec2(iconX + 18.0f, pos.y + 16.0f), modeShape, 1.5f);
     } else {
         draw->AddText(ImVec2(modeLeft + std::max(4.0f, (statusWidth - labelSize.x) * 0.5f), pos.y + 8.0f),
                       modeInk, modeLabel);
@@ -47492,7 +47502,8 @@ void RenderUI(AppState& state) {
                 ImGui::SetCursorScreenPos(magicEQPos);
                 if (DrawMagicEQBar("##MagicEQ", magicEQ,
                                    magicEqSampleRate,
-                                   saveMagicEQSettings, transportBarBg))
+                                   saveMagicEQSettings, transportBarBg,
+                                   state.settings.theme == AppTheme::LapisBlue && !state.settings.useCustomColors && !ThemeColors::customized()))
                     state.audioEngine.setMagicEQ(magicEQ);
                 if (saveMagicEQSettings) SaveAppSettings(state);
                 ThemeInspector::RegisterZone(

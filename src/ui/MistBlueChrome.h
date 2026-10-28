@@ -1,7 +1,24 @@
 #pragma once
 #include "Theme.h"
 #include "imgui.h"
+#include "TransportContrast.h"
 namespace MistBlueChrome {
+struct EqStateColors { ImVec4 button, ink, signal; };
+inline EqStateColors EqState(const ThemeColorScheme& s, ImVec4 surface,
+                            bool enabled, bool hovered = false, bool pressed = false) {
+    const auto mix = [](ImVec4 a, ImVec4 b, float t) {
+        return ImVec4(a.x+(b.x-a.x)*t, a.y+(b.y-a.y)*t, a.z+(b.z-a.z)*t, 1);
+    };
+    const ImVec4 button = enabled
+        ? (pressed ? mix(s.controlAccent, surface, .15f)
+                   : mix(s.controlAccent, s.interfaceText, hovered ? .12f : 0.f))
+        : mix(surface, s.chromeBorder, hovered ? .08f : 0.f);
+    const ImVec4 ink = TransportContrast::ForSurface(enabled ? surface : s.resultsSecondaryText, button, 4.7);
+    ImVec4 signal = enabled ? s.controlAccent : s.interfaceText;
+    if (!enabled) signal.w = .30f;
+    signal = TransportContrast::Over(TransportContrast::ForSurface(signal, surface, 3.2), surface);
+    return {button, ink, signal};
+}
 struct ControlSurfaces { ImVec4 normal, hovered, active, title, muted; };
 inline ControlSurfaces Controls(const ThemeColorScheme& s) {
     return {s.frameBgBase, s.resultsTabHover, s.modeCapsuleActiveBG,
