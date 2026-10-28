@@ -18063,14 +18063,35 @@ Database::CoverWallPage Database::getGlobalCoverWallEntriesPage(const std::strin
             if (!found) return page;
         }
 
+        // Choose the first file for each cover in one pass. Correlated
+        // NOT EXISTS checks repeated a large-library scan for every candidate
+        // and could leave the first page empty for tens of seconds.
         std::string sql = R"SQL(
-            SELECT af.id,
-                   COALESCE(NULLIF(r.normalized_key, ''), r.cover_key,
+            WITH ranked AS (
+                SELECT af.id, af.file_name, af.file_path, af.folder_path,
+                       af.embedded_cover_key, af.folder_cover_key,
+                       af.folder_cover_src_path,
                        CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                             THEN af.embedded_cover_key
                             WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
                             THEN af.folder_cover_key
-                            ELSE '?|' || af.folder_path END),
+                            ELSE '?|' || af.folder_path END AS cover_identity,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY CASE
+                               WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
+                               THEN af.embedded_cover_key
+                               WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
+                               THEN af.folder_cover_key
+                               ELSE '?|' || af.folder_path END
+                           ORDER BY af.file_name COLLATE AURA_NATURAL, af.file_path, af.id
+                       ) AS cover_rank
+                FROM audio_files af
+                WHERE (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '') OR
+                      (af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '') OR
+                      (af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '')
+            )
+            SELECT af.id,
+                   COALESCE(NULLIF(r.normalized_key, ''), r.cover_key, af.cover_identity),
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                         THEN af.file_path ELSE af.folder_path END,
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
@@ -18079,53 +18100,9 @@ Database::CoverWallPage Database::getGlobalCoverWallEntriesPage(const std::strin
                         ELSE af.folder_cover_src_path END,
                    CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
                         THEN 1 ELSE 0 END
-            FROM audio_files af INDEXED BY idx_files_name_natural
-            LEFT JOIN cover_cache_registry r ON r.cover_key =
-                CASE WHEN af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> ''
-                     THEN af.embedded_cover_key
-                     WHEN af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> ''
-                     THEN af.folder_cover_key
-                     ELSE '?|' || af.folder_path END
-            WHERE (
-                (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '') OR
-                (af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '') OR
-                (af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '')
-            )
-            AND (
-                (af.embedded_cover_key IS NOT NULL AND af.embedded_cover_key <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.embedded_cover_key = af.embedded_cover_key
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 )) OR
-                ((af.embedded_cover_key IS NULL OR af.embedded_cover_key = '') AND
-                 af.folder_cover_key IS NOT NULL AND af.folder_cover_key <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.folder_cover_key = af.folder_cover_key
-                      AND (prev.embedded_cover_key IS NULL OR prev.embedded_cover_key = '')
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 )) OR
-                ((af.embedded_cover_key IS NULL OR af.embedded_cover_key = '') AND
-                 (af.folder_cover_key IS NULL OR af.folder_cover_key = '') AND
-                 af.has_cover = 1 AND af.folder_path IS NOT NULL AND af.folder_path <> '' AND
-                 NOT EXISTS (
-                    SELECT 1 FROM audio_files prev
-                    WHERE prev.folder_path = af.folder_path AND prev.has_cover = 1
-                      AND (prev.embedded_cover_key IS NULL OR prev.embedded_cover_key = '')
-                      AND (prev.folder_cover_key IS NULL OR prev.folder_cover_key = '')
-                      AND (prev.file_name COLLATE AURA_NATURAL < af.file_name OR
-                           (prev.file_name COLLATE AURA_NATURAL = af.file_name AND
-                            (prev.file_path < af.file_path OR
-                             (prev.file_path = af.file_path AND prev.id < af.id))))
-                 ))
-            )
+            FROM ranked af
+            LEFT JOIN cover_cache_registry r ON r.cover_key = af.cover_identity
+            WHERE af.cover_rank = 1
         )SQL";
         if (cursorId > 0) {
             sql += R"SQL(

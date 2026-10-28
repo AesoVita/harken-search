@@ -1140,6 +1140,38 @@ int testLargeCoverWallPageFollowsCurrentFileListPastFiftyThousandRows() {
         removeDbFamily(dbPath);
         return 1;
     }
+    const auto denseStart = std::chrono::steady_clock::now();
+    const auto densePage = db.getGlobalCoverWallEntriesPage({}, 512, true);
+    const auto denseElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - denseStart).count();
+    const bool denseOk = densePage.largeLibrary && densePage.entries.size() == 512 &&
+        denseElapsed < 5000;
+    std::cout << (denseOk ? "PASS" : "FAIL")
+              << ": dense first cover page loads promptly; rows="
+              << densePage.entries.size() << " elapsed_ms=" << denseElapsed
+              << " error=" << db.getLastError() << "\n";
+    if (!denseOk) ++failures;
+    if (sqlite3_exec(db.db(),
+            "UPDATE audio_files SET embedded_cover_key='E|shared' WHERE id <= 49000;",
+            nullptr, nullptr, nullptr) != SQLITE_OK) {
+        ++failures;
+    } else {
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        sqlite3_progress_handler(db.db(), 10000, [](void* context) -> int {
+            const auto* end = static_cast<const std::chrono::steady_clock::time_point*>(context);
+            return std::chrono::steady_clock::now() >= *end ? 1 : 0;
+        }, &deadline);
+        const auto repeatedStart = std::chrono::steady_clock::now();
+        const auto repeatedPage = db.getGlobalCoverWallEntriesPage({}, 2, true);
+        const auto repeatedElapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            std::chrono::steady_clock::now() - repeatedStart).count();
+        sqlite3_progress_handler(db.db(), 0, nullptr, nullptr);
+        const bool repeatedOk = repeatedPage.entries.size() == 2 && repeatedElapsed < 5000;
+        std::cout << (repeatedOk ? "PASS" : "FAIL")
+                  << ": repeated cover keys do not stall global page; rows="
+                  << repeatedPage.entries.size() << " elapsed_ms=" << repeatedElapsed << "\n";
+        if (!repeatedOk) ++failures;
+    }
     const char* fixtureSql =
         "UPDATE audio_files SET has_cover=0, embedded_cover_key='' "
         "WHERE file_name NOT IN ('zz_bulk_0.wav', 'zz_bulk_1.wav', "

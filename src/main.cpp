@@ -18840,6 +18840,9 @@ void RenderFileInfoPanelTabContents(
                     setDisplayItems(&cw.items, CoverWallSource::Global);
                 }
 
+                globalPageLoadingWithoutStableItems =
+                    (cw.loading || cw.entriesInFlight || cw.foldersInFlight || cw.preloadInFlight) &&
+                    (!pDisplayItems || pDisplayItems->empty());
                 // Refresh the cover-wall load-state text.
                 }
             }
