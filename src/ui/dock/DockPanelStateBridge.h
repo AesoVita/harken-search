@@ -194,6 +194,33 @@ struct DockBandReserve {
     float bottom = 0.0f;
 };
 
+// Use every real module's saved height, not just the legacy Filter/Info pair.
+template <typename HeightForModule>
+inline DockBandReserve ResolveDockBandReserve(
+    const DockLayout& layout, HeightForModule heightForModule,
+    float fallbackHeight, float scale) {
+    auto height = [&](DockSide side) {
+        const DockNode* root = layout.RegionRoot(side);
+        if (!root) return 0.0f;
+        float saved = 0.0f;
+        auto visit = [&](auto&& self, const DockNode* node) -> void {
+            if (!node) return;
+            if (node->Kind() == NodeKind::Module) {
+                saved = std::max(saved, heightForModule(static_cast<const ModuleNode*>(node)->id));
+            } else {
+                const auto* split = static_cast<const SplitNode*>(node);
+                self(self, split->first.get());
+                self(self, split->second.get());
+            }
+        };
+        visit(visit, root);
+        const float preferred = std::clamp(saved > 0.0f ? saved : fallbackHeight,
+            kDockBandMinHeight, kDockBandMaxHeight);
+        return std::max(preferred, DockSubtreeMinimum(root, scale).height);
+    };
+    return {height(DockSide::Top), height(DockSide::Bottom)};
+}
+
 inline DockBandReserve ResolveDockBandReserve(
     const DockLayout& layout,
     float filterDockedHeight,

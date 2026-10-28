@@ -26154,6 +26154,14 @@ bool ResolveDockQaPointerPoint(const std::string& module, const std::string& par
         if (!e.panel->floating) return false;
         const ImVec2 corner(e.window.x + e.window.width - 3.0f, e.window.y + e.window.height - 3.0f);
         r = ImRect(corner, ImVec2(corner.x + 1.0f, corner.y + 1.0f));
+    } else if (part == "band-splitter") {
+        if (e.panel->floating) return false;
+        const bool top = g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Top) == g_dockLayout.Find(module);
+        const bool bottom = g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Bottom) == g_dockLayout.Find(module);
+        if (!top && !bottom) return false;
+        const ImVec2 grip(e.window.x + e.window.width * .5f,
+            top ? e.window.y + e.window.height + 3.0f : e.window.y - 3.0f);
+        r = ImRect(grip, ImVec2(grip.x + 1.0f, grip.y + 1.0f));
     } else if (part != "title") return false;
     if (r.GetWidth() <= 0.0f || r.GetHeight() <= 0.0f) return false;
     x = r.GetCenter().x;
@@ -26312,10 +26320,14 @@ static void MirrorDockRootExtent(AppState& state, aura::ui::dock::DockSide root,
         state.panelSimilarSounds.dockedWidth = rect.width;
     }
     if (root == DockSide::Top || root == DockSide::Bottom) {
-        if (aura::ui::dock::DockSubtreeContainsModule(g_dockLayout.RegionRoot(root), "filter"))
-            state.panelSidebar.dockedHeight = rect.height;
-        if (aura::ui::dock::DockSubtreeContainsModule(g_dockLayout.RegionRoot(root), "info"))
-            state.panelFileInfo.dockedHeight = rect.height;
+        struct Entry { const char* id; AppState::PanelState* panel; };
+        const Entry entries[] = {{"filter", &state.panelSidebar}, {"info", &state.panelFileInfo},
+            {"similar-sounds", &state.panelSimilarSounds}, {"search-results", &g_searchResultsDockPanel},
+            {"mod-ucs-browser", &state.panelUCSBrowser}, {"mod-tag-browser", &state.panelTagBrowser},
+            {"mod-workflow", &state.panelWorkflow}, {"mod-transfer", &state.panelTransfer}};
+        for (const auto& entry : entries)
+            if (aura::ui::dock::DockSubtreeContainsModule(g_dockLayout.RegionRoot(root), entry.id))
+                entry.panel->dockedHeight = rect.height;
     }
 }
 
@@ -38240,18 +38252,36 @@ void RenderUI(AppState& state) {
     const bool leftDockSlotRequired = showLeftColumn || leftRegionRoot != nullptr;
     const bool rightDockSlotRequired = showRightColumn || rightRegionRoot != nullptr;
 
-    // Top and bottom Dock bands participate in the vertical budget. Each band
-    // reads the matching Filter/File Info dockedHeight so the persisted control
-    // is actually consumed, not just written.
+    const auto dockBandHeightOwner = [&](aura::ui::dock::DockSide side) -> float* {
+        struct Entry { const char* id; PanelState* panel; };
+        const Entry entries[] = {{"filter", &state.panelSidebar}, {"info", &state.panelFileInfo},
+            {"similar-sounds", &state.panelSimilarSounds}, {"search-results", &g_searchResultsDockPanel},
+            {"mod-ucs-browser", &state.panelUCSBrowser}, {"mod-tag-browser", &state.panelTagBrowser},
+            {"mod-workflow", &state.panelWorkflow}, {"mod-transfer", &state.panelTransfer}};
+        for (const auto& entry : entries)
+            if (moduleDockedInRegion(entry.id, side)) return &entry.panel->dockedHeight;
+        return nullptr;
+    };
+    const auto dockSavedHeight = [&](std::string_view id) {
+        if (id == "filter") return state.panelSidebar.dockedHeight;
+        if (id == "info") return state.panelFileInfo.dockedHeight;
+        if (id == "similar-sounds") return state.panelSimilarSounds.dockedHeight;
+        if (id == "search-results") return g_searchResultsDockPanel.dockedHeight;
+        if (id == "mod-ucs-browser") return state.panelUCSBrowser.dockedHeight;
+        if (id == "mod-tag-browser") return state.panelTagBrowser.dockedHeight;
+        if (id == "mod-workflow") return state.panelWorkflow.dockedHeight;
+        if (id == "mod-transfer") return state.panelTransfer.dockedHeight;
+        return 0.0f;
+    };
     const aura::ui::dock::DockBandReserve dockBandReserve =
         aura::ui::dock::ResolveDockBandReserve(
-            g_dockLayout, state.panelSidebar.dockedHeight,
-            state.panelFileInfo.dockedHeight,
-            std::clamp(mainWorkH * 0.20f, 96.0f, 240.0f));
+            g_dockLayout, dockSavedHeight,
+            std::clamp(mainWorkH * 0.20f, 96.0f, 240.0f), viewport->DpiScale);
     const float topDockBandHeight = dockBandReserve.top;
     const float bottomDockBandHeight = dockBandReserve.bottom;
-    const float topDockReserve = topDockBandHeight > 0.0f ? topDockBandHeight : 0.0f;
-    const float bottomDockReserve = bottomDockBandHeight > 0.0f ? bottomDockBandHeight : 0.0f;
+    const float dockBandSplitter = aura::ui::dock::kDockBandSplitterHeight;
+    const float topDockReserve = topDockBandHeight > 0.0f ? topDockBandHeight + dockBandSplitter : 0.0f;
+    const float bottomDockReserve = bottomDockBandHeight > 0.0f ? bottomDockBandHeight + dockBandSplitter : 0.0f;
 
     // The waveform remains rendered by the fixed legacy workspace band; it is
     // deliberately absent from the Dock tree and from all Dock split math.
@@ -39992,9 +40022,8 @@ void RenderUI(AppState& state) {
     // shell and its outer splitter lag one frame behind a ratio/visibility change.
     const float dockColumnTop = ImGui::GetMainViewport()->WorkPos.y + menuBarHeight + toolbarHeight;
     const float dockContentTop = dockColumnTop + topDockReserve;
-    if (topDockReserve > 0.0f) {
-        ImGui::SetCursorScreenPos(ImVec2(viewport->WorkPos.x, dockContentTop));
-    }
+    const float sideColumnHeight = availHeight + topDockReserve + bottomDockReserve;
+    ImGui::SetCursorScreenPos(ImVec2(viewport->WorkPos.x, dockColumnTop));
     auto refreshDockLeafGeometry = [&](const aura::ui::dock::DockNode* root,
                                        const aura::ui::dock::DockRect& slot,
                                        const char* id,
@@ -40017,7 +40046,7 @@ void RenderUI(AppState& state) {
     if (leftRegionSplit) {
         refreshDockLeafGeometry(
             leftRegionRoot,
-            {viewport->WorkPos.x, dockContentTop, leftPanelWidth, availHeight},
+            {viewport->WorkPos.x, dockColumnTop, leftPanelWidth, sideColumnHeight},
             "filter", filterLeafWidth, filterLeafHeight, filterLeafX, filterLeafY);
         filterShellWidth = aura::ui::dock::DockFilterShellWidth(
             true, leftPanelWidth, filterLeafWidth, leftSidebarMinWidth, leftSidebarMaxWidth);
@@ -40025,21 +40054,21 @@ void RenderUI(AppState& state) {
     if (rightRegionSplit) {
         refreshDockLeafGeometry(
             rightRegionRoot,
-            {viewport->WorkPos.x + mainWorkW - rightPanelWidth, dockContentTop, rightPanelWidth, availHeight},
+            {viewport->WorkPos.x + mainWorkW - rightPanelWidth, dockColumnTop, rightPanelWidth, sideColumnHeight},
             "info", infoLeafWidth, infoLeafHeight, infoLeafX, infoLeafY);
         infoShellWidth = aura::ui::dock::DockFilterShellWidth(
             true, rightPanelWidth, infoLeafWidth, rightPanelMinWidth, std::max(rightPanelMaxWidth, rightPanelWidth));
     }
     const aura::ui::dock::DockRect filterDockedRect{
         leftRegionSplit ? filterLeafX : viewport->WorkPos.x,
-        leftRegionSplit ? filterLeafY : dockContentTop,
+        leftRegionSplit ? filterLeafY : dockColumnTop,
         leftRegionSplit ? filterLeafWidth : leftPanelWidth,
-        leftRegionSplit ? filterLeafHeight : availHeight};
+        leftRegionSplit ? filterLeafHeight : sideColumnHeight};
     const aura::ui::dock::DockRect infoDockedRect{
         rightRegionSplit ? infoLeafX : viewport->WorkPos.x + mainWorkW - rightPanelWidth,
-        rightRegionSplit ? infoLeafY : dockContentTop,
+        rightRegionSplit ? infoLeafY : dockColumnTop,
         rightRegionSplit ? infoLeafWidth : rightPanelWidth,
-        rightRegionSplit ? infoLeafHeight : availHeight};
+        rightRegionSplit ? infoLeafHeight : sideColumnHeight};
 
     const ImU32 kTitleText = ImGui::GetColorU32(state.settings.theme == AppTheme::LapisBlue
         ? ThemeColors::current().interfaceText
@@ -40558,7 +40587,7 @@ void RenderUI(AppState& state) {
         ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing,       ImVec2(ImGui::GetStyle().ItemSpacing.x, 4.0f));
         ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding,     3.0f);
         const float leftColumnChildWidth = leftRegionSplit ? filterShellWidth : leftPanelWidth;
-        const float leftColumnChildHeight = leftRegionSplit ? std::max(1.0f, filterLeafHeight) : availHeight;
+        const float leftColumnChildHeight = leftRegionSplit ? std::max(1.0f, filterLeafHeight) : sideColumnHeight;
         if (leftRegionSplit) {
             ImGui::SetCursorScreenPos(ImVec2(filterLeafX, filterLeafY));
         }
@@ -40575,7 +40604,7 @@ void RenderUI(AppState& state) {
             const ImVec4 kWarmWhite = ImVec4(0.988f, 0.978f, 0.952f, 1.0f);
             const float leftPanelLift = isLightFilterTheme ? 0.09f : 0.055f;
             const ImVec4 leftPanelBg = uiWithAlpha(uiMix(uiMix(tcs.filterBrowserBG, kWarmWhite, leftPanelLift), tcs.mainWindowBG, 0.05f), 1.0f);
-            const float leftShellHeight = leftRegionSplit ? leftColumnChildHeight : availHeight;
+            const float leftShellHeight = leftRegionSplit ? leftColumnChildHeight : sideColumnHeight;
             const DockModuleShellLayout leftShell = drawDockModuleShell(
                 dl,
                 winPos,
@@ -40639,9 +40668,9 @@ void RenderUI(AppState& state) {
         // The child may render a nested Dock leaf at an offset position. Restore
         // the outer column edge before creating ##LeftSplitter so the legacy
         // splitter remains the owner of the whole left-column width.
-        ImGui::SetCursorScreenPos(ImVec2(viewport->WorkPos.x + leftPanelWidth, dockContentTop));
+        ImGui::SetCursorScreenPos(ImVec2(viewport->WorkPos.x + leftPanelWidth, dockColumnTop));
         if (!hideLeftSplitterInBrowser) {
-            VerticalSplitter("##LeftSplitter", &state.panelSidebar.dockedWidth, 120.0f, leftSidebarMaxWidth, availHeight);
+            VerticalSplitter("##LeftSplitter", &state.panelSidebar.dockedWidth, 120.0f, leftSidebarMaxWidth, sideColumnHeight);
             ImGui::SameLine(0, 0);
         }
     }
@@ -40652,10 +40681,9 @@ void RenderUI(AppState& state) {
     // A Dock root can outlive its legacy Filter/Info shell. Keep Results beside
     // that live root until its last leaf floats, then this frame budget returns
     // to zero on the next layout pass.
-    if (!showLeftColumn && leftDockSlotRequired) {
-        ImGui::SetCursorScreenPos(ImVec2(
-            viewport->WorkPos.x + leftDockColumnWidth + splitterWidth, dockContentTop));
-    }
+    ImGui::SetCursorScreenPos(ImVec2(
+        viewport->WorkPos.x + (leftDockSlotRequired ? leftDockColumnWidth + splitterWidth : 0.0f),
+        dockContentTop));
     // Calculate available width for center panel
     float centerWidth = ImGui::GetContentRegionAvail().x;
     if (rightDockSlotRequired) centerWidth -= rightDockColumnWidth + splitterWidth;
@@ -45983,13 +46011,13 @@ void RenderUI(AppState& state) {
         // legacy splitter still belongs at the outer results/info boundary.
         ImGui::SetCursorScreenPos(ImVec2(
             viewport->WorkPos.x + mainWorkW - rightPanelWidth - splitterWidth,
-            dockContentTop));
+            dockColumnTop));
         VerticalSplitter(
             "##RightSplitter",
             &state.panelFileInfo.dockedWidth,
             rightPanelMinWidth,
             rightPanelMaxWidth,
-            availHeight,
+            sideColumnHeight,
             true);  // invertDelta for right panel
 
         ImGui::SameLine(0, 0);
@@ -46006,7 +46034,7 @@ void RenderUI(AppState& state) {
                 ImVec4(infoScrollbar.x, infoScrollbar.y, infoScrollbar.z, 0.80f));
         }
         const float rightColumnChildWidth = rightRegionSplit ? infoShellWidth : rightPanelWidth;
-        const float rightColumnChildHeight = rightRegionSplit ? std::max(1.0f, infoLeafHeight) : availHeight;
+        const float rightColumnChildHeight = rightRegionSplit ? std::max(1.0f, infoLeafHeight) : sideColumnHeight;
         if (rightRegionSplit) {
             ImGui::SetCursorScreenPos(ImVec2(infoLeafX, infoLeafY));
         }
@@ -46020,7 +46048,7 @@ void RenderUI(AppState& state) {
         ImVec2 winPos = ImGui::GetWindowPos();
         const auto& tcs = ThemeColors::current();
         const ImVec4 infoPanelBg = ThemeColors::infoPanelDockBG(tcs);
-        const float rightShellHeight = rightRegionSplit ? rightColumnChildHeight : availHeight;
+        const float rightShellHeight = rightRegionSplit ? rightColumnChildHeight : sideColumnHeight;
         const DockModuleShellLayout rightShell = drawDockModuleShell(
             dl,
             winPos,
@@ -46249,6 +46277,10 @@ void RenderUI(AppState& state) {
     };
 
     // BOTTOM - Waveform and Transport (with resizable splitter)
+    // The center may end above a bottom Dock band; the waveform always starts
+    // after the full-height side columns, never over a newly docked panel.
+    ImGui::SetCursorScreenPos(ImVec2(viewport->WorkPos.x,
+        dockColumnTop + sideColumnHeight + ImGui::GetStyle().ItemSpacing.y));
 
     if (showDockedWaveform) {
     // 启动动画：自底升起
@@ -50932,30 +50964,26 @@ void RenderUI(AppState& state) {
     const aura::ui::dock::DockRect mainWork{
         mainWinPos.x, mainWinPos.y, mainWinSize.x, mainWinSize.y};
 
-    const float columnTop = mainWinPos.y + menuBarHeight + toolbarHeight + topDockReserve;
-    const float columnHeight = std::max(1.0f, availHeight);
+    const float columnTop = dockColumnTop;
+    const float columnHeight = std::max(1.0f, sideColumnHeight);
     const float columnWidthLeft = leftDockSlotRequired
         ? leftDockColumnWidth : std::max(160.0f, mainWinSize.x * 0.24f);
     const float columnWidthRight = rightDockSlotRequired
         ? rightDockColumnWidth : std::max(160.0f, mainWinSize.x * 0.24f);
-    const float dockBandTopY = mainWinPos.y + menuBarHeight + toolbarHeight;
     aura::ui::dock::DockRootSlots rootSlots{};
     rootSlots.left = {mainWinPos.x, columnTop, columnWidthLeft, columnHeight};
     rootSlots.right = {mainWinPos.x + mainWinSize.x - columnWidthRight, columnTop, columnWidthRight, columnHeight};
-    rootSlots.top = {mainWinPos.x, dockBandTopY, mainWinSize.x, topDockBandHeight};
-    const float bottomSlotHeight = bottomDockBandHeight;
-    const float bottomSlotY = mainWinPos.y + mainWinSize.y - reservedStatusBarHeight - waveBandHeight - bottomSlotHeight;
-    if (g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Bottom)) {
-        rootSlots.bottom = {
-            mainWinPos.x + (leftDockSlotRequired ? leftDockColumnWidth : 0.0f),
-            bottomSlotY,
-            std::max(1.0f, mainWinSize.x -
-                (leftDockSlotRequired ? leftDockColumnWidth : 0.0f) -
-                (rightDockSlotRequired ? rightDockColumnWidth : 0.0f)),
-            bottomSlotHeight};
-    } else {
-        rootSlots.bottom = {mainWinPos.x, bottomSlotY, mainWinSize.x, bottomSlotHeight};
-    }
+    const float centerDockX = mainWinPos.x +
+        (leftDockSlotRequired ? leftDockColumnWidth + splitterWidth : 0.0f);
+    const float centerDockWidth = std::max(1.0f, mainWinSize.x -
+        (leftDockSlotRequired ? leftDockColumnWidth + splitterWidth : 0.0f) -
+        (rightDockSlotRequired ? rightDockColumnWidth + splitterWidth : 0.0f));
+    const float emptyBandHeight = std::clamp(mainWinSize.y * .20f, 180.0f, 240.0f);
+    rootSlots.top = {centerDockX, dockColumnTop, centerDockWidth,
+        topDockBandHeight > 0.0f ? topDockBandHeight : emptyBandHeight};
+    const float bottomSlotHeight = bottomDockBandHeight > 0.0f ? bottomDockBandHeight : emptyBandHeight;
+    const float bottomSlotY = dockColumnTop + sideColumnHeight - bottomSlotHeight;
+    rootSlots.bottom = {centerDockX, bottomSlotY, centerDockWidth, bottomSlotHeight};
 
     aura::ui::dock::DockFrameGeometry cachedDockFrameGeometry{};
     uint64_t cachedDockGeometryRevision = 0;
@@ -51057,13 +51085,14 @@ void RenderUI(AppState& state) {
                     (rightDockSlotRequired ? rightDockColumnWidth + splitterWidth : 0.0f)),
                 std::max(1.0f, availHeight)
         };
-        const float centerLandingInset = std::clamp(dockSnapDistance * 1.5f, 120.0f, 160.0f);
         const aura::ui::dock::DockCenterDropTarget centerDrop{
-            aura::ui::dock::InsetDockCenterDropRect(
-                centerSurface, centerLandingInset, centerLandingInset),
+            centerSurface,
             rememberedSide,
             true,
-            rememberedDockExtentForModule(draggingId, rememberedSide)
+            rememberedSide == aura::ui::dock::DockSide::Top || rememberedSide == aura::ui::dock::DockSide::Bottom
+                ? std::clamp(dockSavedHeight(draggingId), aura::ui::dock::kDockBandMinHeight, aura::ui::dock::kDockBandMaxHeight)
+                : rememberedDockExtentForModule(draggingId, rememberedSide),
+            std::clamp(dockSavedHeight(draggingId), aura::ui::dock::kDockBandMinHeight, aura::ui::dock::kDockBandMaxHeight)
         };
         const auto hit = aura::ui::dock::HitDockTarget(
             {pointer.x - 0.5f, pointer.y - 0.5f, 1.0f, 1.0f},
@@ -51781,27 +51810,31 @@ void RenderUI(AppState& state) {
     {
         const float minBandHeight = aura::ui::dock::kDockBandMinHeight;
         const float maxBandHeight = aura::ui::dock::kDockBandMaxHeight;
-        float* topHeightOwner = nullptr;
-        if (moduleDockedInRegion("filter", aura::ui::dock::DockSide::Top)) {
-            topHeightOwner = &state.panelSidebar.dockedHeight;
-        } else if (moduleDockedInRegion("info", aura::ui::dock::DockSide::Top)) {
-            topHeightOwner = &state.panelFileInfo.dockedHeight;
-        }
+        float* topHeightOwner = dockBandHeightOwner(aura::ui::dock::DockSide::Top);
         if (topHeightOwner != nullptr && topDockReserve > 0.0f) {
-            ImGui::SetCursorScreenPos(ImVec2(rootSlots.top.x, dockColumnTop + topDockBandHeight - 3.0f));
-            HorizontalSplitter("##TopDockSplitter", topHeightOwner, minBandHeight, maxBandHeight,
-                               rootSlots.top.width, true);
+            ImGui::SetCursorScreenPos(ImVec2(rootSlots.top.x, dockColumnTop + topDockBandHeight));
+            const float minimum = std::max(minBandHeight, aura::ui::dock::DockSubtreeMinimum(
+                g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Top), viewport->DpiScale).height);
+            if (HorizontalSplitter("##TopDockSplitter", topHeightOwner, minimum,
+                    std::max(minimum, std::min(maxBandHeight, availHeight + topDockBandHeight - 200.0f)),
+                    rootSlots.top.width, true)) {
+                auto rect = rootSlots.top; rect.height = *topHeightOwner;
+                MirrorDockRootExtent(state, aura::ui::dock::DockSide::Top, rect);
+                MarkSettingsDirty(state);
+            }
         }
-        float* bottomHeightOwner = nullptr;
-        if (moduleDockedInRegion("filter", aura::ui::dock::DockSide::Bottom)) {
-            bottomHeightOwner = &state.panelSidebar.dockedHeight;
-        } else if (moduleDockedInRegion("info", aura::ui::dock::DockSide::Bottom)) {
-            bottomHeightOwner = &state.panelFileInfo.dockedHeight;
-        }
+        float* bottomHeightOwner = dockBandHeightOwner(aura::ui::dock::DockSide::Bottom);
         if (bottomHeightOwner != nullptr && bottomDockReserve > 0.0f) {
-            ImGui::SetCursorScreenPos(ImVec2(rootSlots.bottom.x, bottomSlotY - 3.0f));
-            HorizontalSplitter("##BottomDockSplitter", bottomHeightOwner, minBandHeight, maxBandHeight,
-                               rootSlots.bottom.width, false);
+            ImGui::SetCursorScreenPos(ImVec2(rootSlots.bottom.x, bottomSlotY - dockBandSplitter));
+            const float minimum = std::max(minBandHeight, aura::ui::dock::DockSubtreeMinimum(
+                g_dockLayout.RegionRoot(aura::ui::dock::DockSide::Bottom), viewport->DpiScale).height);
+            if (HorizontalSplitter("##BottomDockSplitter", bottomHeightOwner, minimum,
+                    std::max(minimum, std::min(maxBandHeight, availHeight + bottomDockBandHeight - 200.0f)),
+                    rootSlots.bottom.width, false)) {
+                auto rect = rootSlots.bottom; rect.height = *bottomHeightOwner;
+                MirrorDockRootExtent(state, aura::ui::dock::DockSide::Bottom, rect);
+                MarkSettingsDirty(state);
+            }
         }
     }
 
