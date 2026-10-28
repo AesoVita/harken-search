@@ -4369,12 +4369,13 @@ static void PollQaCommandFile(AppState& state) {
             const std::string scenario = getStr(raw, "scenario");
             if (scenario != "pass" && scenario != "bypass" && scenario != "notch" &&
                 scenario != "processing" && scenario != "mono" && scenario != "spectrum" &&
-                scenario != "overdrive" && scenario != "selection" && scenario != "wide") {
+                scenario != "overdrive" && scenario != "fill-boundary" && scenario != "selection" && scenario != "wide") {
                 result = "{\"ok\":false,\"error\":\"invalid_transport_audit_scenario\"}";
             } else {
                 state.audioEngine.stop();
                 state.settings.productMode = ProductMode::SFX;
-                state.audioEngine.setVolume(scenario == "overdrive" ? 1.10f : (scenario == "processing" ? .85f : .26f));
+                state.audioEngine.setVolume(scenario == "overdrive" ? 1.07f :
+                    (scenario == "fill-boundary" ? .55f : (scenario == "processing" ? .85f : .26f)));
                 state.audioEngine.setMono(scenario == "mono");
                 state.audioEngine.setPan(scenario == "processing" ? .5f : 0);
                 state.audioEngine.setCenterSense(scenario == "processing" ? .6f : 0);

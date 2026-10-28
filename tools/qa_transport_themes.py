@@ -92,7 +92,7 @@ def analyze_snapshot(snapshot, required=None):
 
 
 THEMES = [(0, '经典深色'), (1, '极光青'), (2, '深海军蓝'), (3, '海玻璃'), (10, '柔雾粉')]
-SCENARIOS = ['pass', 'bypass', 'notch', 'processing', 'mono', 'spectrum', 'overdrive', 'selection', 'wide']
+SCENARIOS = ['pass', 'bypass', 'notch', 'processing', 'mono', 'spectrum', 'overdrive', 'fill-boundary', 'selection', 'wide']
 
 
 class Driver:
@@ -266,11 +266,10 @@ def run(args):
         if identity['pid'] != process.pid or Path(identity['exe_path']).resolve() != exe or Path(identity['isolation_root']).resolve() != isolation:
             raise RuntimeError('Executable, PID or pinned isolation root does not match')
         hwnd = identity['hwnd']
-        user32.ShowWindow(hwnd, 9)
+        user32.ShowWindow(hwnd, 4)
         width = min(args.width, user32.GetSystemMetrics(0) - 60)
         height = min(1000, user32.GetSystemMetrics(1) - 100)
-        user32.SetWindowPos(hwnd, None, 20, 30, width, height, 0x0040)
-        user32.SetForegroundWindow(hwnd)
+        user32.SetWindowPos(hwnd, None, 20, 30, width, height, 0x0040 | 0x0010 | 0x0004)
         driver.command({'cmd': 'load_path', 'path': str(fixture)})
         deadline = time.monotonic() + 30
         while not driver.command({'cmd': 'get_state'}).get('audio_loaded'):
@@ -283,7 +282,7 @@ def run(args):
                         not_covered=['music mode', 'popups', 'hover/drag', 'waveform footer', 'pitch wheel', 'active library scan'])
         source_root = Path(__file__).resolve().parents[1]
         source_paths = ['src/main.cpp', 'src/WindowsMain.cpp', 'src/ui/TransportContrast.h',
-                        'src/ui/TransportVisualAudit.h', 'src/ui/TransportBlendSlider.h',
+                        'src/ui/TransportVisualAudit.h', 'src/ui/TransportBlendSlider.h', 'src/ui/TransportValueText.h',
                         'tools/qa_transport_themes.py']
         identity['source_sha256'] = {p: hashlib.sha256((source_root / p).read_bytes()).hexdigest() for p in source_paths}
         identity['git_revision'] = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=source_root, text=True).strip()

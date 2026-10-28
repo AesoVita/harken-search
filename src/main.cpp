@@ -46976,6 +46976,8 @@ void RenderUI(AppState& state) {
             float normalRatio = std::min(volume / 100.0f, 1.0f);
             float fillWidth = fillRatio * (volWidth - 4);
             float normalWidth = normalRatio * (volWidth - 4);
+            ImU32 volumeFillStart=kThemeControlShell,volumeFillEnd=kThemeControlShell;
+            ImU32 volumeOverStart=kThemeControlShell,volumeOverEnd=kThemeControlShell;
 
             // Normal range (use custom color if enabled)
             if (normalWidth > 0) {
@@ -47009,6 +47011,7 @@ void RenderUI(AppState& state) {
                         ? ImGui::GetColorU32(uiWithAlpha(uiMix(tcsTransport.meterWarning, tcsTransport.waveformColor, 0.16f), 1.0f))
                         : fillMid;
                 }
+                volumeFillStart=fillStart;volumeFillEnd=fillEnd;
                 volDl->AddRectFilledMultiColor(
                     ImVec2(volPos.x + 2, volPos.y + 2),
                     ImVec2(volPos.x + 2 + normalWidth, volPos.y + volHeight - 2),
@@ -47020,6 +47023,7 @@ void RenderUI(AppState& state) {
                 float overStart = volPos.x + 2 + normalWidth;
                 ImU32 overColor = ThemeMascot::getInstance().getOverdriveFillStart(mascotTheme);
                 ImU32 overColorBright = ThemeMascot::getInstance().getOverdriveFillEnd(mascotTheme);
+                volumeOverStart=overColor;volumeOverEnd=overColorBright;
                 volDl->AddRectFilledMultiColor(
                     ImVec2(overStart, volPos.y + 2),
                     ImVec2(volPos.x + 2 + fillWidth, volPos.y + volHeight - 2),
@@ -47042,27 +47046,30 @@ void RenderUI(AppState& state) {
             char volText[16];
             snprintf(volText, sizeof(volText), "%.0f%%", volume);
             ImVec2 textSize = ImGui::CalcTextSize(volText);
-            // A small opaque backing keeps the value readable across the
-            // moving fill boundary, gradient, and overdrive effect.
-            const ImVec4 volumeLabelSurface = TransportContrast::Over(
+            const ImVec4 volumeShellSurface = TransportContrast::Over(
                 ImGui::ColorConvertU32ToFloat4(kThemeControlShell), transportBarBg);
-            const ImU32 textColor = ImGui::GetColorU32(TransportContrast::ForSurface(
-                tcsTransport.interfaceText, volumeLabelSurface, 4.7));
             float jitter = isOverdriven ? (signalLevel * 1.5f * sinf(time * 40.0f)) : 0.0f;
             ImVec2 textDrawPos(
                 volPos.x + (volWidth - textSize.x) / 2,
                 volPos.y + (volHeight - textSize.y) / 2 + jitter
             );
-            volDl->AddRectFilled(ImVec2(textDrawPos.x - 3, textDrawPos.y - 1),
-                ImVec2(textDrawPos.x + textSize.x + 3, textDrawPos.y + textSize.y + 1),
-                ImGui::GetColorU32(volumeLabelSurface), 2.0f);
-            volDl->AddText(textDrawPos, textColor, volText);
+            auto volumeSurfaceAt = [&](float x) {
+                const float offset=x-(volPos.x+2);
+                // Match the existing rectangles and their paint order, including
+                // the reverse-directed overdrive rectangle.
+                const bool over=isOverdriven && fillWidth!=normalWidth &&
+                    offset>=(std::min)(normalWidth,fillWidth) && offset<(std::max)(normalWidth,fillWidth);
+                const bool normal=!over && offset>=0 && offset<normalWidth;
+                if(!normal && !over) return volumeShellSurface;
+                const float t=std::clamp(normal ? offset/normalWidth :
+                    (offset-normalWidth)/(fillWidth-normalWidth),0.f,1.f);
+                const auto a=ImGui::ColorConvertU32ToFloat4(normal ? volumeFillStart : volumeOverStart);
+                const auto b=ImGui::ColorConvertU32ToFloat4(normal ? volumeFillEnd : volumeOverEnd);
+                return TransportContrast::Over(ImLerp(a,b,t),volumeShellSurface);
+            };
+            TransportValueText::Draw(volDl,textDrawPos,volText,tcsTransport.interfaceText,
+                volumeSurfaceAt,"volume.label");
             if (TransportVisualAudit::Collecting()) {
-                for (int edge = 0; edge < 3; ++edge) {
-                    const ImU32 bg = ImGui::GetColorU32(volumeLabelSurface);
-                    TransportVisualAudit::Record(edge == 0 ? "volume.label" : (edge == 1 ? "volume.label.center" : "volume.label.right"),
-                        true, textColor, bg, textDrawPos, ImVec2(textDrawPos.x + textSize.x, textDrawPos.y + textSize.y));
-                }
                 TransportVisualAudit::Record("volume.outline", false, borderColor, ImGui::GetColorU32(transportBarBg),
                     volPos, ImVec2(volPos.x + volWidth, volPos.y + volHeight));
             }
@@ -48024,10 +48031,9 @@ void RenderUI(AppState& state) {
                 const ImU32 blendInk = ImGui::GetColorU32(TransportContrast::ForSurface(
                     tcsTransport.interfaceText, spectrumFrame, 4.7));
                 if (TransportBlendSlider::Draw(u8"##SpectrogramBlend", &blendPercent,
-                    blendInk, ImGui::GetColorU32(spectrumFrame))) {
+                    blendInk, ImGui::GetColorU32(transportBarBg))) {
                     state.spectrogramBlend = blendPercent / 100.0f;
                 }
-                TransportVisualAudit::Item("spectrum.blend", true, blendInk, ImGui::GetColorU32(spectrumFrame));
                 TransportVisualAudit::Item("spectrum.blend.grip", false, ImGui::GetColorU32(ImGuiCol_SliderGrab), ImGui::GetColorU32(spectrumFrame));
                 if (HoveredForHelp()) {
                     HarkenSearch::SetTooltip("%s", L(Wave_BlendTooltip));
