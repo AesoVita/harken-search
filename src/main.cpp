@@ -227,6 +227,7 @@
 #include "WaveformExtractor.h"
 #include "WaveformRegionEditor.h"
 #include "MiniWaveformGeometry.h"
+#include "MiniWaveformPresentation.h"
 #include "MiniWaveformScheduler.h"
 #include "SelectedWaveformRebuildQueue.h"
 #include "RenderFrameRequestPolicy.h"
@@ -2023,6 +2024,15 @@ static bool HasCompatibleMiniWaveTexture(const std::string& path, int targetW, i
     return true;
 }
 
+static bool GetRetainedMiniWaveTexture(const std::string& path, MiniWaveTextureEntry& outTex) {
+    auto it = g_miniWaveTextureCache.find(path);
+    if (it == g_miniWaveTextureCache.end() || !it->second.hasTexture || it->second.textureId == 0)
+        return false;
+    it->second.lastUsedFrame = (uint64_t)ImGui::GetFrameCount();
+    outTex = it->second;
+    return true;
+}
+
 ImU32 g_waveformColor = IM_COL32(59, 130, 246, 255);       // Electric Blue #3b82f6
 ImU32 g_waveformBgColor = IM_COL32(8, 9, 11, 255);         // #08090b
 ImU32 g_waveformRmsColor = IM_COL32(30, 80, 180, 200);     // 深蓝 RMS
@@ -2445,16 +2455,21 @@ static void ScheduleMiniWaveformRequestsForRange(AppState& state, int displaySta
     }
 }
 
-void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key) {
-    state.waveformCache.erase(key);
-    state.waveformFailed.erase(key);
+void InvalidateMiniWaveTextureForPath(const std::string& key) {
     auto texIt = g_miniWaveTextureCache.find(key);
     if (texIt != g_miniWaveTextureCache.end()) {
-        if (texIt->second.textureId != 0) {
+        if (texIt->second.textureId != 0)
             DeleteMiniWaveTexture(texIt->second.textureId);
-        }
         g_miniWaveTextureCache.erase(texIt);
     }
+}
+
+void ReleaseWaveformEvictedEntry(AppState& state, const std::string& key,
+                                 MiniWaveformPresentation::Removal removal) {
+    state.waveformCache.erase(key);
+    state.waveformFailed.erase(key);
+    if (!MiniWaveformPresentation::RetainTextureAfterRemoval(removal))
+        InvalidateMiniWaveTextureForPath(key);
 }
 
 // 封面图片文件读取 / 文件夹封面缓存 / 内嵌封面纹理等逻辑已迁移到 `CoverModule.*`
@@ -9902,7 +9917,8 @@ BuildAsyncSearchResultApplicationEffects() {
             IsCoverWallPriorityMode,
             ResetWaveformZoom,
             [](AppState& appState, const std::string& key) {
-                ReleaseWaveformEvictedEntry(appState, key);
+                ReleaseWaveformEvictedEntry(appState, key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             },
         });
 }
@@ -10427,7 +10443,8 @@ void AppState::performGlobalMemoryGC() {
             uint64_t over = wUsage - wBudget;
             auto evicted = memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, over);
             for (const auto& e : evicted)
-                ReleaseWaveformEvictedEntry(*this, e.key);
+                ReleaseWaveformEvictedEntry(*this, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
         }
     } else {
         waveformCache.clear();
@@ -37178,7 +37195,8 @@ void RenderUI(AppState& state) {
         auto pending = state.memoryBudget->getAndClearPendingEvicted();
         for (const auto& [t, e] : pending) {
             if (t == MemoryBudget::CacheType::Waveform) {
-                ReleaseWaveformEvictedEntry(state, e.key);
+                ReleaseWaveformEvictedEntry(state, e.key,
+                    MiniWaveformPresentation::Removal::BudgetEviction);
             } else if (t == MemoryBudget::CacheType::Cover) {
                 CoverModule::ReleaseCoverEvictedEntry(e.key);
             }
@@ -43394,11 +43412,24 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            // 占位符：仅用 Dummy 保持列宽，不画背景框
                             ImVec2 pos = ImGui::GetCursorScreenPos();
-                            ImGui::Dummy(ImVec2(waveWidth, waveHeight));
-                            float cy = pos.y + waveHeight / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(entry.fullPath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(waveWidth, waveHeight));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = pos.x + playPos * waveWidth;
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, pos.y), ImVec2(x, pos.y + waveHeight),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(waveWidth, waveHeight));
+                                float cy = pos.y + waveHeight / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(pos.x, cy), ImVec2(pos.x + waveWidth, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
                     }
 
@@ -44968,9 +44999,23 @@ void RenderUI(AppState& state) {
                                 }
                             }
                         } else {
-                            ImGui::Dummy(ImVec2(cellW, cellH));
-                            float cy = cellMin.y + cellH / 2.0f;
-                            ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            MiniWaveTextureEntry retained;
+                            const bool hasRetained = GetRetainedMiniWaveTexture(record.filePath, retained);
+                            if (MiniWaveformPresentation::Choose(false, hasRetained) ==
+                                MiniWaveformPresentation::Mode::Texture) {
+                                ImGui::Image((ImTextureID)(intptr_t)retained.textureId,
+                                             ImVec2(cellW, cellH));
+                                if (isCurrentFile && playPos > 0.0f) {
+                                    const float x = waveLayout.seekXFromNormalized(playPos);
+                                    ImGui::GetWindowDrawList()->AddLine(
+                                        ImVec2(x, cellMin.y), ImVec2(x, cellMin.y + cellH),
+                                        IM_COL32(255, 100, 100, 220), 1.5f);
+                                }
+                            } else {
+                                ImGui::Dummy(ImVec2(cellW, cellH));
+                                float cy = cellMin.y + cellH / 2.0f;
+                                ImGui::GetWindowDrawList()->AddLine(ImVec2(cellMin.x, cy), ImVec2(cellMin.x + cellW, cy), IM_COL32(50, 50, 55, 60));
+                            }
                         }
 
                         // 3. Mini 波形热区：始终提交 InvisibleButton，避免 rowHovered 导致松手时丢点击；支持按住 scrub
@@ -45589,13 +45634,7 @@ void RenderUI(AppState& state) {
                     state.waveformCache.erase(state.waveformCache.begin());
                 }
                 // Invalidate stale GPU texture so it regenerates from new data
-                auto texIt = g_miniWaveTextureCache.find(res.filePath);
-                if (texIt != g_miniWaveTextureCache.end()) {
-                    if (texIt->second.textureId != 0) {
-                        DeleteMiniWaveTexture(texIt->second.textureId);
-                    }
-                    g_miniWaveTextureCache.erase(texIt);
-                }
+                InvalidateMiniWaveTextureForPath(res.filePath);
                 state.waveformCache[res.filePath] = std::move(res.waveform);
                 state.waveformFailed.erase(res.filePath);
                 state.waveformMiniCacheMiss.erase(res.filePath);

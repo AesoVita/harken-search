@@ -5930,6 +5930,22 @@ endif()
 add_test(NAME TestMiniWaveformScheduler COMMAND TestMiniWaveformScheduler)
 aura_set_test_labels(TestMiniWaveformScheduler core)
 
+add_executable(TestMiniWaveformPresentation EXCLUDE_FROM_ALL
+    tests/test_mini_waveform_presentation.cpp
+)
+target_include_directories(TestMiniWaveformPresentation PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+if(MSVC)
+    target_compile_options(TestMiniWaveformPresentation PRIVATE /W3 /utf-8)
+    set_target_properties(TestMiniWaveformPresentation PROPERTIES
+        LINK_FLAGS_RELEASE "/SUBSYSTEM:CONSOLE"
+        LINK_FLAGS_DEBUG "/SUBSYSTEM:CONSOLE"
+    )
+endif()
+add_test(NAME TestMiniWaveformPresentation COMMAND TestMiniWaveformPresentation)
+aura_set_test_labels(TestMiniWaveformPresentation core)
+
 add_executable(TestMiniRenderMath EXCLUDE_FROM_ALL
     tests/test_mini_render_math.cpp
 )

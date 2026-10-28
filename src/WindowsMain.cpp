@@ -13546,7 +13546,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                                 uint64_t requiredBytes = (currentUsage + waveformSizeBytes) - budget;
                                 auto evicted = state.memoryBudget->evictLRU(MemoryBudget::CacheType::Waveform, requiredBytes);
                                 for (const auto& evictEntry : evicted)
-                                    ReleaseWaveformEvictedEntry(state, evictEntry.key);
+                                    ReleaseWaveformEvictedEntry(state, evictEntry.key,
+                                        MiniWaveformPresentation::Removal::BudgetEviction);
                             }
                         }
                         
@@ -13561,6 +13562,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
                             state.waveformCache.erase(state.waveformCache.begin());
                         }
                     }
+                    InvalidateMiniWaveTextureForPath(result.filePath);
                     state.waveformCache[result.filePath] = std::move(result.waveform);
                 } else {
                     int attempt = 1;
