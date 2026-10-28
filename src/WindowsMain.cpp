@@ -10,6 +10,7 @@
 #include "Theme.h"
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
+#include "ui/EmptyStateVisualAudit.h"
 #include "AnnotationBridge.h"
 #include "BackgroundIoPolicy.h"
 #include "BetaFeatureFlags.h"
@@ -4351,6 +4352,13 @@ static void PollQaCommandFile(AppState& state) {
         }
     } else if (cmd == aura::diagnostics::FrameBudgetDiagnostics::resultCommand()) {
         result = aura::diagnostics::FrameBudgetDiagnostics::shared().resultJson();
+    } else if (cmd == "empty_state_audit") {
+        if (!MagicEqQaIsolationReady()) {
+            result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";
+        } else {
+            EmptyStateVisualAudit::Request();
+            result = EmptyStateVisualAudit::Json();
+        }
     } else if (cmd == "transport_audit" || cmd == "transport_audit_setup") {
         if (!MagicEqQaIsolationReady()) {
             result = "{\"ok\":false,\"error\":\"fixed_preview_isolation_required\"}";

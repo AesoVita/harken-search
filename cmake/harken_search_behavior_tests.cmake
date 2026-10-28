@@ -6068,6 +6068,17 @@ aura_set_test_labels(TestDatabaseNavNonblockingContract core)
 
 
 add_executable(TestTransportContrast EXCLUDE_FROM_ALL tests/test_transport_contrast.cpp)
+add_executable(TestEmptyStateContrast EXCLUDE_FROM_ALL tests/test_empty_state_contrast.cpp src/BuiltinThemeScheme.cpp)
+add_dependencies(TestEmptyStateContrast ArisLocalizationGenerated)
+target_include_directories(TestEmptyStateContrast PRIVATE src ${IMGUI_DIR} ${CMAKE_CURRENT_BINARY_DIR}/generated thirdparty)
+if(MSVC)
+    target_compile_options(TestEmptyStateContrast PRIVATE /utf-8)
+endif()
+add_test(NAME TestEmptyStateContrast COMMAND TestEmptyStateContrast)
+aura_set_test_labels(TestEmptyStateContrast ui)
+add_test(NAME TestEmptyStateThemeAudit COMMAND ${Python3_EXECUTABLE} -m unittest discover
+    -s ${CMAKE_CURRENT_SOURCE_DIR}/tests -p test_empty_state_theme_audit.py)
+aura_set_test_labels(TestEmptyStateThemeAudit ui)
 target_include_directories(TestTransportContrast PRIVATE src ${IMGUI_DIR})
 add_test(NAME TestTransportContrast COMMAND TestTransportContrast)
 aura_set_test_labels(TestTransportContrast ui)

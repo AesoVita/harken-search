@@ -100,7 +100,9 @@
 #include "Theme.h"              // 主题颜色系统
 #include "ThemeInspector.h"
 #include "ui/TransportVisualAudit.h"
-#include "ui/TransportContrast.h"     // 主题检视模式
+#include "ui/TransportContrast.h"
+#include "ui/EmptyStatePalette.h"
+#include "ui/EmptyStateVisualAudit.h"
 #include "ui/TransportBlendSlider.h"
 #include "HarkenSearchThemeManager.h"   // 次世代视觉管理器
 #include "HarkenSearchWidgets.h"        // Aris shared controls for core product flows
@@ -28654,6 +28656,7 @@ static const char* StartupNoDatabaseSetupHint(const AppState& state) {
 }
 
 static void RenderNoDatabaseSetupEmptyState(AppState& state) {
+    EmptyStateVisualAudit::Begin(static_cast<int>(state.settings.theme));
     const ThemeColorScheme& tcs = ThemeColors::current();
     ImGuiStyle& style = ImGui::GetStyle();
     auto mixColor = [](const ImVec4& a, const ImVec4& b, float t) -> ImVec4 {
@@ -28666,10 +28669,6 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     auto withAlpha = [](const ImVec4& color, float alpha) -> ImVec4 {
         return ImVec4(color.x, color.y, color.z, alpha);
     };
-    auto luminance = [](const ImVec4& color) -> float {
-        return color.x * 0.299f + color.y * 0.587f + color.z * 0.114f;
-    };
-
     const float panelWidth =
         std::min(ImGui::GetContentRegionAvail().x, 560.0f);
     const float horizontalPad =
@@ -28681,42 +28680,31 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     const float indent =
         (ImGui::GetContentRegionAvail().x - panelWidth) * 0.5f;
 
-    const ImVec4 panelBg =
-        withAlpha(mixColor(tcs.resultsBG, tcs.dialogPanelBG, 0.34f), 0.98f);
-    const ImVec4 panelGlow =
-        withAlpha(mixColor(panelBg, tcs.searchButtonBG, 0.10f), 0.24f);
-    const ImVec4 panelBorder =
-        withAlpha(mixColor(tcs.resultsOutline, tcs.controlAccent, 0.16f), 0.52f);
-    const ImVec4 panelAccentLine =
-        withAlpha(mixColor(tcs.searchButtonBG, tcs.controlAccent, 0.20f), 0.70f);
-    const ImVec4 titleColor =
-        withAlpha(mixColor(ThemeColors::peerPanelHeading(tcs), tcs.controlAccent, 0.12f), 0.98f);
-    const ImVec4 bodyColor =
-        withAlpha(mixColor(tcs.resultsText, tcs.resultsSecondaryText, 0.12f), 0.96f);
-    const ImVec4 hintColor =
-        withAlpha(mixColor(tcs.resultsSecondaryText, tcs.resultsText, 0.10f), 0.88f);
-    const ImVec4 separatorColor =
-        withAlpha(mixColor(panelBorder, panelAccentLine, 0.12f), 0.74f);
-
-    const ImVec4 primaryButtonBg =
-        withAlpha(mixColor(tcs.searchButtonBG, panelBg, 0.10f), 0.96f);
-    const ImVec4 primaryButtonHover =
-        withAlpha(mixColor(primaryButtonBg, tcs.resultsText, 0.08f), 1.0f);
-    const ImVec4 primaryButtonActive =
-        withAlpha(mixColor(primaryButtonBg, tcs.resultsText, 0.16f), 1.0f);
-    const ImVec4 primaryButtonText =
-        luminance(primaryButtonBg) >= 0.62f
-            ? withAlpha(mixColor(tcs.mainWindowBG, tcs.interfaceText, 0.20f), 0.98f)
-            : withAlpha(tcs.resultsText, 0.98f);
-
-    const ImVec4 secondaryButtonBg =
-        withAlpha(mixColor(panelBg, tcs.frameBgBase, 0.26f), 0.98f);
-    const ImVec4 secondaryButtonHover =
-        withAlpha(mixColor(secondaryButtonBg, tcs.searchButtonBG, 0.10f), 1.0f);
-    const ImVec4 secondaryButtonActive =
-        withAlpha(mixColor(secondaryButtonBg, tcs.searchButtonBG, 0.18f), 1.0f);
-    const ImVec4 secondaryButtonText =
-        withAlpha(mixColor(tcs.resultsText, tcs.resultsSecondaryText, 0.08f), 0.95f);
+    const auto palette = EmptyStatePalette::Make(tcs,
+        ImGui::ColorConvertU32ToFloat4(ImGui::GetColorU32(ImGuiCol_ChildBg)));
+    auto buttonSurfaces = [&](ImVec4 normal,ImVec4 hover,ImVec4 active) {
+        const ImVec4 bg = (ImGui::IsItemActive() && ImGui::IsItemHovered()) ? active :
+            ImGui::IsItemHovered() ? hover : normal;
+        auto surfaces=palette.surfaces;
+        for(auto& surface:surfaces) surface=TransportContrast::Over(TransportContrast::Quantize(bg),surface);
+        return surfaces;
+    };
+    const auto& panelBg = palette.panelBg;
+    const auto& panelGlow = palette.panelGlow;
+    const auto& panelBorder = palette.panelBorder;
+    const auto& panelAccentLine = palette.panelAccentLine;
+    const auto& titleColor = palette.titleColor;
+    const auto& bodyColor = palette.bodyColor;
+    const auto& hintColor = palette.hintColor;
+    const auto& separatorColor = palette.separatorColor;
+    const auto& primaryButtonBg = palette.primaryButtonBg;
+    const auto& primaryButtonHover = palette.primaryButtonHover;
+    const auto& primaryButtonActive = palette.primaryButtonActive;
+    const auto& primaryButtonText = palette.primaryButtonText;
+    const auto& secondaryButtonBg = palette.secondaryButtonBg;
+    const auto& secondaryButtonHover = palette.secondaryButtonHover;
+    const auto& secondaryButtonActive = palette.secondaryButtonActive;
+    const auto& secondaryButtonText = palette.secondaryButtonText;
 
     if (indent > 0.0f) {
         ImGui::SetCursorPosX(ImGui::GetCursorPosX() + indent);
@@ -28744,6 +28732,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, titleColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupTitle(state));
+    EmptyStateVisualAudit::Record("title",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     if (emphasisFont) {
@@ -28755,6 +28744,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, bodyColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupBody(state));
+    EmptyStateVisualAudit::Record("body",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
 
@@ -28767,6 +28757,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     if (ImGui::Button(L(File_NewDB), actionButtonSize)) {
         state.showNewDbDialog = true;
     }
+    EmptyStateVisualAudit::Record("new",buttonSurfaces(primaryButtonBg,primaryButtonHover,primaryButtonActive));
     ImGui::PopStyleColor(4);
 
     if (!stackButtons) {
@@ -28788,6 +28779,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
             SwitchDatabase(state, openPath);
         }
     }
+    EmptyStateVisualAudit::Record("open",buttonSurfaces(secondaryButtonBg,secondaryButtonHover,secondaryButtonActive));
     ImGui::PopStyleColor(4);
 
     ImGui::Dummy(ImVec2(0.0f, style.ItemSpacing.y + style.FramePadding.y * 0.55f));
@@ -28808,6 +28800,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     ImGui::PushStyleColor(ImGuiCol_Text, hintColor);
     ImGui::PushTextWrapPos(contentStartX + contentWidth);
     ImGui::TextWrapped("%s", StartupNoDatabaseSetupHint(state));
+    EmptyStateVisualAudit::Record("hint",palette.surfaces);
     ImGui::PopTextWrapPos();
     ImGui::PopStyleColor();
     ImGui::EndGroup();
@@ -28816,6 +28809,7 @@ static void RenderNoDatabaseSetupEmptyState(AppState& state) {
     const ImVec2 groupMax = ImGui::GetItemRectMax();
     const ImVec2 panelMin(groupMin.x - horizontalPad, groupMin.y - verticalPad);
     const ImVec2 panelMax(groupMax.x + horizontalPad, groupMax.y + verticalPad);
+    EmptyStateVisualAudit::End(panelMin,panelMax);
 
     splitter.SetCurrentChannel(drawList, 0);
     drawList->AddRectFilled(
