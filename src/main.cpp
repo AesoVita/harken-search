@@ -9019,16 +9019,10 @@ static bool HasSearchExplainability(const AudioRecord& record, const std::string
            !BuildFallbackSearchSnippet(record, query).empty();
 }
 
-// Search-hit explainability is operational search feedback, not Guided Mode help.
-// Keep it available even when the global help-tooltip switch is off.
+// Local customization: suppress search-result hover popups in both the name
+// and description columns. Search matching and inline highlights stay active.
 static bool BeginSearchExplainabilityTooltip() {
-    static int s_lastSearchExplainabilityTooltipFrame = -1;
-    const int frame = ImGui::GetFrameCount();
-    if (s_lastSearchExplainabilityTooltipFrame == frame)
-        return false;
-    ImGui::BeginTooltip();
-    s_lastSearchExplainabilityTooltipFrame = frame;
-    return true;
+    return false;
 }
 
 static bool HasBlockingSearchExplainabilityPopup() {
